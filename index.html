@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pyramid Solitaire Input</title>
+    <style>
+        :root {
+            --tile-width: 40px;
+            --tile-height: 60px;
+            --tile-overlap: -30px;
+            --tile-bg: beige;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 16px 10px 28px;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #fff;
+            color: #111;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: clamp(26px, 7vw, 42px);
+        }
+
+        .version {
+            margin-bottom: 18px;
+            color: #666;
+            font-size: 16px;
+        }
+
+        #pyramid {
+            width: max-content;
+            max-width: 100%;
+            margin: 0 auto;
+            padding-top: 30px;
+        }
+
+        .pyramid-row {
+            display: flex;
+            justify-content: center;
+            margin: var(--tile-overlap) 0 0 0;
+        }
+
+        .tile {
+            position: relative;
+            width: var(--tile-width);
+            height: var(--tile-height);
+            flex: 0 0 var(--tile-width);
+            margin: 0;
+            background-color: var(--tile-bg);
+            border-radius: 10px;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .tile-value {
+            position: absolute;
+            top: 6px;
+            left: 0;
+            right: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 26px;
+            line-height: 1;
+            font-weight: 700;
+            color: #111;
+            pointer-events: none;
+        }
+
+        .inventory-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin-top: 20px;
+            padding-bottom: 4px;
+        }
+
+        .inventory {
+            display: flex;
+            justify-content: center;
+            min-width: calc(24 * var(--tile-width));
+            width: max-content;
+            margin: 0 auto;
+        }
+
+        .inventory .tile:nth-child(3n) {
+            border-right: 2px solid black;
+        }
+
+        .section-label {
+            margin: 18px 0 8px;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .card-keyboard {
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(7, 54px);
+            gap: 7px;
+            justify-content: center;
+            max-width: 100%;
+        }
+
+        .card-key {
+            width: 54px;
+            height: 54px;
+            border: 0;
+            border-radius: 9px;
+            background: beige;
+            box-shadow: 1px 2px 5px rgba(0, 0, 0, 0.28);
+            cursor: pointer;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 27px;
+            font-weight: 700;
+            color: #111;
+            touch-action: manipulation;
+        }
+
+        .card-key:active,
+        .card-key.active {
+            transform: translateY(1px);
+            outline: 3px solid #2f80ed;
+        }
+
+        .status {
+            min-height: 24px;
+            margin: 12px 0 0;
+            color: #444;
+            font-size: 15px;
+        }
+
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(140px, 180px));
+            gap: 10px;
+            justify-content: center;
+            margin-top: 14px;
+        }
+
+        .action-button {
+            border: 0;
+            border-radius: 7px;
+            padding: 11px 12px;
+            color: #fff;
+            background: #666;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        #playButton { background: #228b22; }
+        #solveButton { background: #1677b8; }
+        #clearButton { background: #aa2b2b; }
+
+        @media (max-width: 470px) {
+            body { padding-left: 4px; padding-right: 4px; }
+            .card-keyboard {
+                grid-template-columns: repeat(7, 44px);
+                gap: 5px;
+            }
+            .card-key {
+                width: 44px;
+                height: 50px;
+                font-size: 24px;
+            }
+            .button-grid {
+                grid-template-columns: repeat(2, minmax(130px, 1fr));
+                padding: 0 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<h1>Pyramid Solitaire Input</h1>
+<div class="version">Pyramid Solitaire v1.0</div>
+
+<div id="pyramid">
+    <div class="pyramid-row"><div class="tile" id="tile1"></div></div>
+    <div class="pyramid-row"><div class="tile" id="tile2"></div><div class="tile" id="tile3"></div></div>
+    <div class="pyramid-row"><div class="tile" id="tile4"></div><div class="tile" id="tile5"></div><div class="tile" id="tile6"></div></div>
+    <div class="pyramid-row"><div class="tile" id="tile7"></div><div class="tile" id="tile8"></div><div class="tile" id="tile9"></div><div class="tile" id="tile10"></div></div>
+    <div class="pyramid-row"><div class="tile" id="tile11"></div><div class="tile" id="tile12"></div><div class="tile" id="tile13"></div><div class="tile" id="tile14"></div><div class="tile" id="tile15"></div></div>
+    <div class="pyramid-row"><div class="tile" id="tile16"></div><div class="tile" id="tile17"></div><div class="tile" id="tile18"></div><div class="tile" id="tile19"></div><div class="tile" id="tile20"></div><div class="tile" id="tile21"></div></div>
+    <div class="pyramid-row"><div class="tile" id="tile22"></div><div class="tile" id="tile23"></div><div class="tile" id="tile24"></div><div class="tile" id="tile25"></div><div class="tile" id="tile26"></div><div class="tile" id="tile27"></div><div class="tile" id="tile28"></div></div>
+</div>
+
+<div class="inventory-wrap">
+    <div class="inventory" id="inventory">
+        <div class="tile" id="tile29"></div><div class="tile" id="tile30"></div><div class="tile" id="tile31"></div>
+        <div class="tile" id="tile32"></div><div class="tile" id="tile33"></div><div class="tile" id="tile34"></div>
+        <div class="tile" id="tile35"></div><div class="tile" id="tile36"></div><div class="tile" id="tile37"></div>
+        <div class="tile" id="tile38"></div><div class="tile" id="tile39"></div><div class="tile" id="tile40"></div>
+        <div class="tile" id="tile41"></div><div class="tile" id="tile42"></div><div class="tile" id="tile43"></div>
+        <div class="tile" id="tile44"></div><div class="tile" id="tile45"></div><div class="tile" id="tile46"></div>
+        <div class="tile" id="tile47"></div><div class="tile" id="tile48"></div><div class="tile" id="tile49"></div>
+        <div class="tile" id="tile50"></div><div class="tile" id="tile51"></div><div class="tile" id="tile52"></div>
+    </div>
+</div>
+
+<div class="section-label">Card Value Keyboard</div>
+<div class="card-keyboard" id="cardKeyboard">
+    <button class="card-key" data-rank="A">A</button>
+    <button class="card-key" data-rank="2">2</button>
+    <button class="card-key" data-rank="3">3</button>
+    <button class="card-key" data-rank="4">4</button>
+    <button class="card-key" data-rank="5">5</button>
+    <button class="card-key" data-rank="6">6</button>
+    <button class="card-key" data-rank="7">7</button>
+    <button class="card-key" data-rank="8">8</button>
+    <button class="card-key" data-rank="9">9</button>
+    <button class="card-key" data-rank="10">10</button>
+    <button class="card-key" data-rank="J">J</button>
+    <button class="card-key" data-rank="Q">Q</button>
+    <button class="card-key" data-rank="K">K</button>
+</div>
+
+<div id="status" class="status">Next input: Tile 1 of 52</div>
+
+<div class="button-grid">
+    <button id="deleteButton" class="action-button">Delete Last Input</button>
+    <button id="clearButton" class="action-button">Clear Board</button>
+    <button id="playButton" class="action-button">Play Puzzle</button>
+    <button id="solveButton" class="action-button">Solve Puzzle</button>
+    <button id="saveButton" class="action-button">Save Puzzle</button>
+    <button id="uploadButton" class="action-button">Upload Puzzle</button>
+</div>
+<input type="file" id="fileInput" hidden accept=".json,application/json">
+
+<script>
+    const VERSION = "Pyramid Solitaire v1.0";
+    const TOTAL_TILES = 52;
+    const VALID_RANKS = new Set(["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]);
+
+    let currentTile = 1;
+    let tileData = {};
+
+    const statusElement = document.getElementById("status");
+
+    function normalizeRank(value) {
+        const rank = String(value ?? "").trim().toUpperCase();
+        return VALID_RANKS.has(rank) ? rank : null;
+    }
+
+    function setTileValue(tileNumber, rank) {
+        const tile = document.getElementById(`tile${tileNumber}`);
+        if (!tile) return;
+
+        tile.replaceChildren();
+        if (!rank) return;
+
+        const value = document.createElement("span");
+        value.className = "tile-value";
+        value.textContent = rank;
+        tile.appendChild(value);
+    }
+
+    function updateStatus(message = "") {
+        if (message) {
+            statusElement.textContent = message;
+            return;
+        }
+
+        if (currentTile <= TOTAL_TILES) {
+            statusElement.textContent = `Next input: Tile ${currentTile} of ${TOTAL_TILES}`;
+        } else {
+            statusElement.textContent = "Board complete: all 52 tiles are filled.";
+        }
+    }
+
+    function recalculateCurrentTile() {
+        currentTile = 1;
+        while (currentTile <= TOTAL_TILES && normalizeRank(tileData[currentTile])) {
+            currentTile++;
+        }
+        updateStatus();
+    }
+
+    function enterRank(rank, button) {
+        if (currentTile > TOTAL_TILES) {
+            updateStatus("All 52 tiles are already filled.");
+            return;
+        }
+
+        tileData[currentTile] = rank;
+        setTileValue(currentTile, rank);
+        currentTile++;
+        updateStatus();
+
+        document.querySelectorAll(".card-key.active").forEach(key => key.classList.remove("active"));
+        button.classList.add("active");
+        window.setTimeout(() => button.classList.remove("active"), 140);
+    }
+
+    document.querySelectorAll(".card-key").forEach(button => {
+        button.addEventListener("click", () => enterRank(button.dataset.rank, button));
+    });
+
+    document.getElementById("deleteButton").addEventListener("click", () => {
+        if (currentTile === 1) {
+            updateStatus("Nothing to delete.");
+            return;
+        }
+
+        if (currentTile > TOTAL_TILES) currentTile = TOTAL_TILES + 1;
+        currentTile--;
+        delete tileData[currentTile];
+        setTileValue(currentTile, null);
+        updateStatus();
+    });
+
+    document.getElementById("clearButton").addEventListener("click", () => {
+        tileData = {};
+        currentTile = 1;
+        for (let tileNumber = 1; tileNumber <= TOTAL_TILES; tileNumber++) {
+            setTileValue(tileNumber, null);
+        }
+        updateStatus("Board cleared. Next input: Tile 1 of 52");
+    });
+
+    function boardHasData() {
+        return Object.values(tileData).some(value => normalizeRank(value));
+    }
+
+    function openDestination(fileName, windowName) {
+        if (!boardHasData()) {
+            updateStatus("Enter at least one card value first.");
+            return;
+        }
+
+        localStorage.setItem("tileData", JSON.stringify(tileData));
+        localStorage.setItem("pyramidSolitaireVersion", VERSION);
+
+        const opened = window.open(fileName, windowName);
+        if (!opened) {
+            window.location.href = fileName;
+        }
+    }
+
+    document.getElementById("playButton").addEventListener("click", () => {
+        openDestination("game.html", "Pyramid Solitaire Game");
+    });
+
+    document.getElementById("solveButton").addEventListener("click", () => {
+        openDestination("solver.html", "Pyramid Solitaire Solver");
+    });
+
+    document.getElementById("saveButton").addEventListener("click", () => {
+        if (!boardHasData()) {
+            updateStatus("There is no board data to save.");
+            return;
+        }
+
+        const payload = {
+            version: VERSION,
+            tileData
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "pyramid_solitaire_configuration.json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
+        updateStatus("Puzzle saved.");
+    });
+
+    document.getElementById("uploadButton").addEventListener("click", () => {
+        document.getElementById("fileInput").click();
+    });
+
+    document.getElementById("fileInput").addEventListener("change", event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const parsed = JSON.parse(reader.result);
+                const uploadedTileData = parsed && typeof parsed === "object" && parsed.tileData
+                    ? parsed.tileData
+                    : parsed;
+
+                const cleaned = {};
+                for (let tileNumber = 1; tileNumber <= TOTAL_TILES; tileNumber++) {
+                    const rank = normalizeRank(uploadedTileData?.[tileNumber]);
+                    if (rank) cleaned[tileNumber] = rank;
+                }
+
+                tileData = cleaned;
+                for (let tileNumber = 1; tileNumber <= TOTAL_TILES; tileNumber++) {
+                    setTileValue(tileNumber, tileData[tileNumber] || null);
+                }
+                recalculateCurrentTile();
+                updateStatus(`Puzzle loaded. ${statusElement.textContent}`);
+            } catch (error) {
+                console.error(error);
+                updateStatus("Could not load that JSON file.");
+            } finally {
+                event.target.value = "";
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    updateStatus();
+</script>
+
+</body>
+</html>
