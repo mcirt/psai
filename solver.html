@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pyramid Solitaire Solver</title>
+<style>
+:root { --tile-w:40px; --tile-h:60px; --overlap:-30px; }
+* { box-sizing:border-box; }
+body { margin:0; padding:14px 8px 24px; font-family:Arial,sans-serif; background:#fff; color:#111; overflow-x:auto; }
+h1 { text-align:center; margin:0 0 4px; }
+.version { text-align:center; color:#666; font-size:12px; margin-bottom:8px; }
+#score { font:48px Georgia,serif; text-align:center; margin:0 0 -12px; position:relative; z-index:0; }
+#flash-points { min-height:22px; text-align:center; font-weight:700; }
+#pyramid { width:max-content; margin:0 auto; position:relative; z-index:1; }
+.pyramid-row { display:flex; justify-content:center; margin:var(--overlap) 0 0; }
+.pyramid-row:first-child { margin-top:0; }
+.tile,.holdtile {
+  width:var(--tile-w); height:var(--tile-h); margin:0; background:#f5f2d8; border-radius:10px;
+  box-shadow:2px 2px 5px rgba(0,0,0,.3); text-align:center; cursor:pointer; position:relative;
+  user-select:none; touch-action:none; border:1px solid rgba(0,0,0,.08);
+}
+.tile .rank,.holdtile .rank { position:absolute; top:5px; left:0; right:0; font:700 25px/1 Georgia,serif; }
+.tile.hidden-card { visibility:hidden; pointer-events:none; }
+.tile.selected,.holdtile.selected { outline:3px solid #ffd400; outline-offset:-2px; }
+.tile.valid-target,.holdtile.valid-target { outline:3px solid #2eaf55; outline-offset:-2px; }
+.tile.invalid-target,.holdtile.invalid-target { outline:3px solid #d34b4b; outline-offset:-2px; }
+.inventory { display:flex; justify-content:center; margin:20px auto 0; position:relative; width:max-content; }
+#tiley,#tilez { margin-left:-15px; }
+.controls { display:flex; justify-content:center; align-items:flex-start; gap:24px; margin-top:18px; }
+.controls button,.download-row button { padding:10px 16px; border-radius:7px; border:0; font-weight:700; cursor:pointer; }
+#draw-button { background:#1769aa; color:#fff; }
+#undo-button { background:#555; color:#fff; }
+#tileh { background:transparent; border:2px dashed #777; box-shadow:none; }
+#tileh.occupied { background:#f5f2d8; border:1px solid rgba(0,0,0,.08); box-shadow:2px 2px 5px rgba(0,0,0,.3); }
+.holdtext { margin-top:20px; font-size:13px; color:#555; }
+.download-row { display:flex; justify-content:center; gap:10px; margin-top:12px; }
+.status { text-align:center; min-height:22px; margin-top:8px; color:#444; }
+.log-panel { max-width:760px; margin:16px auto 0; border:1px solid #ccc; border-radius:8px; padding:10px 14px; }
+.log-panel h2 { margin:0 0 8px; font-size:18px; }
+#moveLog { margin:0; padding-left:24px; max-height:220px; overflow:auto; }
+#moveLog li { margin:4px 0; }
+.drag-ghost { position:fixed; pointer-events:none; z-index:9999; opacity:.9; transform:translate(-50%,-50%) scale(1.08); }
+.game-over { color:#238636; font-weight:700; }
+.solver-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:14px auto 0}.solver-controls button{padding:10px 14px;border:0;border-radius:7px;font-weight:700;cursor:pointer}.solver-note{text-align:center;color:#666;font-size:13px;margin-top:8px}
+@media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} }
+</style>
+</head>
+<body>
+<h1>Pyramid Solitaire Solver</h1>
+<div class="version">Pyramid Solitaire v1.0</div>
+<div id="score">Score: 0</div>
+<div id="flash-points"></div>
+<div id="pyramid"></div>
+<div class="inventory">
+  <div class="tile hidden-card" id="tilex" data-zone="inventory"><span class="rank"></span></div>
+  <div class="tile hidden-card" id="tiley" data-zone="inventory"><span class="rank"></span></div>
+  <div class="tile hidden-card" id="tilez" data-zone="inventory"><span class="rank"></span></div>
+</div>
+<div class="controls">
+  <button id="draw-button">Draw</button>
+  <button id="undo-button">Undo</button>
+  <div class="holdtile" id="tileh" data-zone="hold"><span class="rank"></span><div class="holdtext">Hold</div></div>
+</div>
+<div class="download-row">
+  <button id="download-button">Download Solver Log</button>
+</div>
+<div class="solver-controls">
+  <button id="backward-step-button">Backward Step</button>
+  <button id="start-solver-button">Start Solver</button>
+  <button id="pause-solver-button">Pause Solver</button>
+  <button id="forward-step-button">Forward Step</button>
+</div>
+<div class="solver-note">v1 uses a fast greedy solver. It follows legal moves but is not yet guaranteed to find every solvable board.</div>
+<div id="status" class="status">Use Start Solver, or step through one legal move at a time.</div>
+<div class="log-panel">
+  <h2>Move Log</h2>
+  <ol id="moveLog"></ol>
+</div>
+<script>
+'use strict';
+const VERSION='Pyramid Solitaire v1.0';
+const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
+const BLOCKERS={1:[2,3],2:[4,5],3:[5,6],4:[7,8],5:[8,9],6:[9,10],7:[11,12],8:[12,13],9:[13,14],10:[14,15],11:[16,17],12:[17,18],13:[18,19],14:[19,20],15:[20,21],16:[22,23],17:[23,24],18:[24,25],19:[25,26],20:[26,27],21:[27,28]};
+
+let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false };
+let history=[];
+let selected=null;
+let pointerSession=null;
+
+function makePyramid(){
+  const root=document.getElementById('pyramid'); let id=1;
+  for(let row=1;row<=7;row++){
+    const rowEl=document.createElement('div'); rowEl.className='pyramid-row';
+    for(let c=0;c<row;c++){
+      const tile=document.createElement('div'); tile.className='tile'; tile.id=`tile${id}`; tile.dataset.zone='pyramid'; tile.dataset.cardId=String(id);
+      const rank=document.createElement('span'); rank.className='rank'; tile.appendChild(rank); rowEl.appendChild(tile); id++;
+    }
+    root.appendChild(rowEl);
+  }
+}
+function loadInitialState(){
+  const raw=localStorage.getItem('pyramidSolitaireTileData')||localStorage.getItem('tileData');
+  if(!raw){ setStatus('No board data found. Return to index.html and load a puzzle.'); return; }
+  const data=JSON.parse(raw); state.tileData={}; for(let i=1;i<=52;i++) state.tileData[i]=data[i]??data[String(i)]??null;
+  state.stockQueue=[]; for(let i=29;i<=52;i++) if(state.tileData[i]) state.stockQueue.push(i);
+  renderAll(); bindPointerEvents();
+}
+function cloneState(){ return JSON.parse(JSON.stringify(state)); }
+function saveSnapshot(){ history.push(cloneState()); }
+function undo(){
+  if(!history.length){ setStatus('Nothing to undo.'); return; }
+  state=history.pop(); selected=null; clearHighlights(); renderAll(); setStatus('Previous move restored, including score and streak.');
+}
+function rankOf(ref){
+  if(ref.zone==='hold') return state.hold?.rank||null;
+  if(ref.zone==='inventory') return state.tileData[ref.cardId]||null;
+  return state.tileData[ref.cardId]||null;
+}
+function isPyramidPlayable(id){ const blockers=BLOCKERS[id]||[]; return blockers.every(b=>state.tileData[b]===null); }
+function currentInventoryIds(){ return [...state.inPlay].sort((a,b)=>b-a).slice(0,3); }
+function currentZId(){ return currentInventoryIds()[0]??null; }
+function isPlayable(ref){
+  if(!ref||state.gameOver) return false;
+  if(ref.zone==='hold') return !!state.hold;
+  if(ref.zone==='inventory') return Number(ref.cardId)===currentZId();
+  return !!state.tileData[ref.cardId] && isPyramidPlayable(Number(ref.cardId));
+}
+function isPair(a,b){ const ra=rankOf(a), rb=rankOf(b); return !!ra&&!!rb&&RANK_VALUE[ra]+RANK_VALUE[rb]===13; }
+function pointsForNextStreak(){ return Math.min(state.streak+1,5)*50; }
+function awardScoringAction(){ state.streak++; const pts=Math.min(state.streak,5)*50; state.score+=pts; flashPoints(`+${pts}`); return pts; }
+function removeRef(ref){
+  if(ref.zone==='hold'){ state.hold=null; return; }
+  const id=Number(ref.cardId); state.tileData[id]=null;
+  if(id>=29){ const idx=state.inPlay.indexOf(id); if(idx>=0) state.inPlay.splice(idx,1); const s=state.stockQueue.indexOf(id); if(s>=0) state.stockQueue.splice(s,1); }
+}
+function describe(ref){
+  if(ref.zone==='hold') return `Hold (${rankOf(ref)})`;
+  if(ref.zone==='inventory') return `Inventory ${ref.cardId} (${rankOf(ref)})`;
+  return `Pyramid ${ref.cardId} (${rankOf(ref)})`;
+}
+function commitLog(type,summary,details={}){
+  state.moveNumber++;
+  const entry={move:state.moveNumber,type,summary,score:state.score,streak:state.streak,timestamp:new Date().toISOString(),details};
+  state.logs.push(entry); renderLog();
+}
+function clearKing(ref){
+  if(!isPlayable(ref)||rankOf(ref)!=='K'){ setStatus('That King is not currently playable.'); return false; }
+  saveSnapshot(); const label=describe(ref); removeRef(ref); const pts=awardScoringAction(); commitLog('KING',`Removed ${label}; +${pts} points.`); finishAction(ref); return true;
+}
+function matchRefs(a,b){
+  if(!isPlayable(a)||!isPlayable(b)){ setStatus('Both cards must be legally playable.'); return false; }
+  if(!isPair(a,b)){ setStatus('Those cards do not total 13.'); return false; }
+  saveSnapshot(); const da=describe(a), db=describe(b); removeRef(a); removeRef(b); const pts=awardScoringAction(); commitLog('MATCH',`Matched ${da} with ${db}; +${pts} points.`); finishAction(a,b); return true;
+}
+function moveToHold(ref){
+  if(state.hold){ setStatus('Hold already contains a card.'); return false; }
+  if(!isPlayable(ref)){ setStatus('Only a playable card can be moved to Hold.'); return false; }
+  saveSnapshot(); const rank=rankOf(ref), source=describe(ref), sourceId=ref.cardId; removeRef(ref); state.hold={rank,sourceId,sourceZone:ref.zone};
+  commitLog('HOLD',`Moved ${source} to Hold.`,{rank});
+  if(Number(sourceId)===1){ state.gameOver=true; commitLog('COMPLETE','Tile 1 moved to Hold. Game complete.'); }
+  finishAction(ref); return true;
+}
+function draw(){
+  if(state.gameOver) return;
+  if(state.stockQueue.length===0){ resetStock(); return; }
+  saveSnapshot(); const drawn=state.stockQueue.splice(0,Math.min(3,state.stockQueue.length)); state.inPlay.push(...drawn); state.streak=0;
+  commitLog('DRAW',`Drew ${drawn.map(id=>`${id} (${state.tileData[id]})`).join(', ')}. Streak reset.`); finishAction();
+}
+function resetStock(){
+  if(!state.inPlay.length){ setStatus('No inventory cards remain.'); return; }
+  saveSnapshot(); state.stockQueue=[...state.inPlay].sort((a,b)=>a-b); state.inPlay=[]; state.streak=0; const before=state.score; state.score=Math.max(0,state.score-50); const deduction=before-state.score;
+  if(deduction) flashPoints(`-${deduction}`,true); commitLog('RESET',`Reset inventory; -${deduction} points. Streak reset.`); finishAction();
+}
+function finishAction(...refs){
+  selected=null; clearHighlights();
+  if(refs.some(r=>r&&Number(r.cardId)===1)){ state.gameOver=true; commitLog('COMPLETE','Tile 1 cleared. Game complete.'); }
+  renderAll();
+  if(state.gameOver) setStatus('Game complete!',true); else setStatus('Move completed.');
+}
+function activate(ref){
+  if(!isPlayable(ref)){ setStatus('That card is blocked or not the playable inventory card.'); return; }
+  if(rankOf(ref)==='K'){ clearKing(ref); return; }
+  if(selected===null){ selected=ref; renderSelection(); setStatus(`${describe(ref)} selected.`); return; }
+  if(sameRef(selected,ref)){ selected=null; renderSelection(); setStatus('Selection cleared.'); return; }
+  const first=selected; selected=null; matchRefs(first,ref); renderSelection();
+}
+function sameRef(a,b){ return a&&b&&a.zone===b.zone&&String(a.cardId??'h')===String(b.cardId??'h'); }
+function refFromElement(el){
+  const card=el?.closest?.('.tile,.holdtile'); if(!card) return null;
+  if(card.id==='tileh') return {zone:'hold',cardId:'h'};
+  if(card.id==='tilez') return {zone:'inventory',cardId:currentZId()};
+  if(card.id==='tilex'||card.id==='tiley') return {zone:'inventory',cardId:Number(card.dataset.cardId)};
+  return {zone:'pyramid',cardId:Number(card.dataset.cardId)};
+}
+function renderAll(){
+  for(let i=1;i<=28;i++){
+    const el=document.getElementById(`tile${i}`), rank=state.tileData[i]; el.querySelector('.rank').textContent=rank||''; el.classList.toggle('hidden-card',!rank);
+  }
+  renderInventory(); renderHold(); renderScore(); renderLog(); renderSelection();
+  document.getElementById('draw-button').textContent=state.stockQueue.length?'Draw':'Reset';
+}
+function renderInventory(){
+  const ids=currentInventoryIds(); const slots=[document.getElementById('tilez'),document.getElementById('tiley'),document.getElementById('tilex')];
+  slots.forEach((el,index)=>{ const id=ids[index]; el.dataset.cardId=id??''; el.querySelector('.rank').textContent=id?state.tileData[id]:''; el.classList.toggle('hidden-card',!id); });
+}
+function renderHold(){
+  const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible';
+}
+function renderScore(){ document.getElementById('score').textContent=`Score: ${state.score}`; }
+function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
+function renderSelection(){ clearHighlights(); if(!selected) return; const el=elementForRef(selected); if(el) el.classList.add('selected'); }
+function clearHighlights(){ document.querySelectorAll('.selected,.valid-target,.invalid-target').forEach(el=>el.classList.remove('selected','valid-target','invalid-target')); }
+function elementForRef(ref){ if(ref.zone==='hold') return document.getElementById('tileh'); if(ref.zone==='inventory') return Number(ref.cardId)===currentZId()?document.getElementById('tilez'):null; return document.getElementById(`tile${ref.cardId}`); }
+function setStatus(text,complete=false){ const el=document.getElementById('status'); el.textContent=text; el.classList.toggle('game-over',complete); }
+function flashPoints(text,negative=false){ const el=document.getElementById('flash-points'); el.textContent=text; el.style.color=negative?'#b42318':'#238636'; clearTimeout(flashPoints.timer); flashPoints.timer=setTimeout(()=>el.textContent='',900); }
+
+function bindPointerEvents(){
+  document.addEventListener('pointerdown',e=>{
+    const ref=refFromElement(e.target); if(!ref||!isPlayable(ref)) return;
+    const sourceEl=elementForRef(ref); pointerSession={id:e.pointerId,ref,startX:e.clientX,startY:e.clientY,dragging:false,ghost:null,sourceEl}; sourceEl.setPointerCapture?.(e.pointerId);
+  });
+  document.addEventListener('pointermove',e=>{
+    const p=pointerSession; if(!p||p.id!==e.pointerId) return;
+    const dist=Math.hypot(e.clientX-p.startX,e.clientY-p.startY);
+    if(!p.dragging&&dist>8){ p.dragging=true; p.ghost=p.sourceEl.cloneNode(true); p.ghost.className='tile drag-ghost'; document.body.appendChild(p.ghost); }
+    if(p.dragging){ p.ghost.style.left=`${e.clientX}px`; p.ghost.style.top=`${e.clientY}px`; highlightDropTarget(e.clientX,e.clientY,p.ref); e.preventDefault(); }
+  },{passive:false});
+  document.addEventListener('pointerup',e=>{
+    const p=pointerSession; if(!p||p.id!==e.pointerId) return; pointerSession=null;
+    if(p.ghost) p.ghost.remove(); clearHighlights();
+    if(!p.dragging){ activate(p.ref); return; }
+    const target=refAtPoint(e.clientX,e.clientY);
+    if(!target||sameRef(p.ref,target)){ setStatus('Card returned to its original position.'); return; }
+    if(target.zone==='hold'&&!state.hold){ moveToHold(p.ref); return; }
+    matchRefs(p.ref,target);
+  });
+  document.addEventListener('pointercancel',()=>{ if(pointerSession?.ghost) pointerSession.ghost.remove(); pointerSession=null; clearHighlights(); });
+}
+function refAtPoint(x,y){ const el=document.elementFromPoint(x,y); return refFromElement(el); }
+function highlightDropTarget(x,y,source){
+  clearHighlights(); const src=elementForRef(source); if(src) src.classList.add('selected'); const target=refAtPoint(x,y); if(!target||sameRef(source,target)) return;
+  const el=elementForRef(target); if(!el) return;
+  const valid=(target.zone==='hold'&&!state.hold)|| (isPlayable(target)&&isPair(source,target)); el.classList.add(valid?'valid-target':'invalid-target');
+}
+function downloadLog(){
+  const payload={version:VERSION,finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_game_log.json'; a.click(); URL.revokeObjectURL(a.href);
+}
+
+
+let solverTimer=null;
+function allPlayableRefs(){
+  const refs=[];
+  for(let i=1;i<=28;i++) if(state.tileData[i]&&isPyramidPlayable(i)) refs.push({zone:'pyramid',cardId:i});
+  const z=currentZId(); if(z) refs.push({zone:'inventory',cardId:z});
+  if(state.hold) refs.push({zone:'hold',cardId:'h'});
+  return refs;
+}
+function chooseGreedyAction(){
+  if(state.gameOver) return null;
+  const refs=allPlayableRefs();
+  const king=refs.find(r=>rankOf(r)==='K');
+  if(king) return {type:'KING',a:king};
+  for(let i=0;i<refs.length;i++) for(let j=i+1;j<refs.length;j++) if(isPair(refs[i],refs[j])) return {type:'MATCH',a:refs[i],b:refs[j]};
+  if(state.stockQueue.length) return {type:'DRAW'};
+  if(state.inPlay.length) return {type:'RESET'};
+  return null;
+}
+function executeSolverStep(){
+  const action=chooseGreedyAction();
+  if(!action){ pauseSolver(); setStatus('No legal greedy move remains.'); return false; }
+  if(action.type==='KING') clearKing(action.a);
+  else if(action.type==='MATCH') matchRefs(action.a,action.b);
+  else if(action.type==='DRAW') draw();
+  else if(action.type==='RESET') resetStock();
+  return true;
+}
+function startSolver(){
+  if(solverTimer||state.gameOver) return;
+  setStatus('Solver running…');
+  solverTimer=setInterval(()=>{ if(!executeSolverStep()||state.gameOver) pauseSolver(); },650);
+}
+function pauseSolver(){ if(solverTimer){ clearInterval(solverTimer); solverTimer=null; } }
+
+makePyramid(); loadInitialState();
+document.getElementById('draw-button').addEventListener('click',draw);
+document.getElementById('undo-button').addEventListener('click',undo);
+document.getElementById('download-button').addEventListener('click',downloadLog);
+document.getElementById('start-solver-button').addEventListener('click',startSolver);
+document.getElementById('pause-solver-button').addEventListener('click',pauseSolver);
+document.getElementById('forward-step-button').addEventListener('click',()=>{pauseSolver();executeSolverStep();});
+document.getElementById('backward-step-button').addEventListener('click',()=>{pauseSolver();undo();});
+</script>
+</body>
+</html>
