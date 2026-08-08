@@ -32,6 +32,8 @@ h1 { text-align:center; margin:0 0 4px; }
 .controls button,.download-row button { padding:10px 16px; border-radius:7px; border:0; font-weight:700; cursor:pointer; }
 #draw-button { background:#1769aa; color:#fff; transition:background .12s,transform .12s,box-shadow .12s; }
 #draw-button.solver-draw-flash { background:#ffd400; color:#111; transform:scale(1.08); box-shadow:0 0 0 4px rgba(255,212,0,.28); }
+#draw-button.solver-reset-flash { background:#ff8a00; color:#111; transform:scale(1.08); box-shadow:0 0 0 4px rgba(255,138,0,.30); }
+.draw-counter.reset-sign{color:#b34100;letter-spacing:.5px;}
 .draw-control{display:flex;flex-direction:column;align-items:center;gap:3px}.draw-counter{height:20px;font-weight:800;font-size:15px;line-height:20px;color:#111;visibility:hidden}.draw-counter.visible{visibility:visible}
 #undo-button { background:#555; color:#fff; }
 #tileh { background:transparent; border:2px dashed #777; box-shadow:none; }
@@ -53,7 +55,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire Solver</h1>
-<div class="version">Pyramid Solitaire v1.4.0</div>
+<div class="version">Pyramid Solitaire v1.5.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -76,7 +78,7 @@ h1 { text-align:center; margin:0 0 4px; }
   <button id="pause-solver-button">Pause Solver</button>
   <button id="forward-step-button">Forward Step</button>
 </div>
-<div class="solver-note">v1.4 searches complete and perfect-score routes first, including the 52→29 inventory setup family. It can examine up to 25,000 simulated states. Completed games receive the 500 solve bonus plus the 1260 time bonus. Draw playback shows a counter above the Draw button.</div>
+<div class="solver-note">v1.5 first runs a dedicated 8260 Perfect Score Probe against the known setup family. If none can reach 8260, it falls back to the normal full-plan solver. Completed games receive the 500 solve bonus plus the 1260 time bonus. Draw playback shows 1/1, 1/6… above Draw, and RESET appears above the button when the inventory is reset.</div>
 <div class="search-stats">
   <div class="search-stat"><strong id="decisionStates">0</strong><span class="search-label">states this decision</span></div>
   <div class="search-stat"><strong id="totalStates">0</strong><span class="search-label">states this solver run</span></div>
@@ -114,7 +116,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.4.0';
+const VERSION='Pyramid Solitaire v1.5.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -327,15 +329,18 @@ function highlightDropTarget(x,y,source){
   const valid=(target.zone==='hold'&&!state.hold)|| (isPlayable(target)&&isPair(source,target)); el.classList.add(valid?'valid-target':'invalid-target');
 }
 function downloadLog(){
-  const payload={version:VERSION,searchConfig:{tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_solver_log.json'; a.click(); URL.revokeObjectURL(a.href);
+  const payload={version:VERSION,searchConfig:{tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE,perfectProbeBeamWidth:PERFECT_PROBE_BEAM_WIDTH,perfectProbeStateLimit:PERFECT_PROBE_NODE_LIMIT},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_solver_log.json'; a.click(); URL.revokeObjectURL(a.href);
 }
 
 
 const SEARCH_DEPTH=8;
-const SEARCH_NODE_LIMIT=100000;
+const SEARCH_NODE_LIMIT=25000;
 const SEARCH_BEAM_WIDTH=18;
 const PLAN_BEAM_WIDTH=320;
 const PLAN_MAX_DEPTH=100;
+const PERFECT_PROBE_BEAM_WIDTH=900;
+const PERFECT_PROBE_NODE_LIMIT=50000;
+const PERFECT_PROBE_MAX_DEPTH=80;
 const MAX_SOLVER_RESETS=5;
 const SOLVER_PREVIEW_MS=520;
 let solverRunning=false;
@@ -609,11 +614,70 @@ function buildPerfectSetupSeeds(initial){
   for(let d=1;d<=8;d++) addSeed(`draw ${d} → hold ${28+d*3} → draw ${8-d} more`,d);
   return seeds;
 }
+
+function perfectProbeActions(s){
+  // A true 8260 route has finished all setup draws already. From here on,
+  // Draw/Reset would break the 28-action scoring streak, so the probe only
+  // explores scoring moves and strategic Hold moves.
+  return generateLegalActions(s).filter(a=>a.type!=='DRAW' && a.type!=='RESET');
+}
+function perfectProbeRank(node){
+  const s=node.state;
+  if(s.gameOver) return (s.score===PERFECT_SCORE && inventoryUsedCount(s)===24) ? 1e15 : -1e15;
+  const cleared=clearedPyramidCount(s), inv=inventoryUsedCount(s);
+  const progress=cleared+inv;
+  return progress*1000000 + s.streak*250000 + s.score*100 + exposedPyramidCount(s)*2500 + immediateScoringCount(s)*1800 - node.path.length*5;
+}
+async function searchPerfectScore(initial){
+  const seeds=buildPerfectSetupSeeds(initial);
+  const probe={checked:true,setupsTested:0,setupCount:seeds.length,statesExamined:0,duplicatesSkipped:0,found:false,winningSetup:null,pathLength:null,score:null,inventoryUsed:0,stopReason:''};
+  for(const seed of seeds){
+    probe.setupsTested++;
+    let frontier=[{state:seed.state,path:seed.path,rank:perfectProbeRank({state:seed.state,path:seed.path})}];
+    const seen=new Map([[planStateKey(seed.state),seed.state.score]]);
+    for(let depth=0; depth<PERFECT_PROBE_MAX_DEPTH && frontier.length && probe.statesExamined<PERFECT_PROBE_NODE_LIMIT; depth++){
+      const nextNodes=[];
+      for(const node of frontier){
+        const actions=perfectProbeActions(node.state);
+        for(const action of actions){
+          if(probe.statesExamined>=PERFECT_PROBE_NODE_LIMIT) break;
+          probe.statesExamined++;
+          const next=simApplyAction(node.state,action);
+          const path=node.path.concat([action]);
+          if(next.gameOver){
+            if(next.score===PERFECT_SCORE && inventoryUsedCount(next)===24){
+              probe.found=true; probe.winningSetup=seed.seedLabel; probe.pathLength=path.length; probe.score=next.score; probe.inventoryUsed=24;
+              probe.stopReason=`Perfect 8260 route found with setup: ${seed.seedLabel}.`;
+              return {probe,path,state:next};
+            }
+            continue;
+          }
+          // If scoring has started, any perfect route must preserve a single uninterrupted streak.
+          if(next.score!==streakScore(next.streak)) continue;
+          const key=planStateKey(next), prev=seen.get(key);
+          if(prev!==undefined && prev>=next.score){ probe.duplicatesSkipped++; continue; }
+          seen.set(key,next.score);
+          nextNodes.push({state:next,path,rank:perfectProbeRank({state:next,path})});
+        }
+        if(probe.statesExamined>=PERFECT_PROBE_NODE_LIMIT) break;
+      }
+      nextNodes.sort((a,b)=>b.rank-a.rank);
+      frontier=nextNodes.slice(0,PERFECT_PROBE_BEAM_WIDTH);
+      document.getElementById('planProgress').textContent=`8260 probe: setup ${probe.setupsTested}/${probe.setupCount} (${seed.seedLabel}); ${probe.statesExamined.toLocaleString()} states checked.`;
+      await new Promise(r=>setTimeout(r,0));
+    }
+    if(probe.statesExamined>=PERFECT_PROBE_NODE_LIMIT) break;
+  }
+  probe.stopReason=probe.statesExamined>=PERFECT_PROBE_NODE_LIMIT
+    ? `8260 probe reached its ${PERFECT_PROBE_NODE_LIMIT.toLocaleString()}-state limit without finding a perfect route; continuing with normal solver.`
+    : 'Known 8260 setup family checked; no perfect route found. Continuing with normal solver.';
+  return {probe,path:null,state:null};
+}
 async function searchBestPlan(){
   const initial=simClone(state);
   const result={statesExamined:0,duplicatesSkipped:0,deadBranches:0,solutionsFound:0,perfectCandidates:0,bestCompletedScore:null,bestMoveCount:null,bestResets:null,bestScoreImprovements:0,bestPartialScore:initial.score,limitReached:false,optimalityProven:false,stopReason:'',searchedDepth:0,perfectSetupSeeds:0};
   const perfectSeeds=buildPerfectSetupSeeds(initial); result.perfectSetupSeeds=perfectSeeds.length;
-  let frontier=[{state:initial,path:[],rank:planRank({state:initial,path:[]}),seedLabel:'general'},...perfectSeeds];
+  let frontier=[{state:initial,path:[],rank:planRank({state:initial,path:[]}),seedLabel:'general'}];
   let bestComplete=null;
   let bestPartial={state:initial,path:[],rank:planRank({state:initial,path:[]})};
   const seen=new Map(); frontier.forEach(n=>{const k=planStateKey(n.state),p=seen.get(k); if(p===undefined||n.state.score>p)seen.set(k,n.state.score);});
@@ -687,6 +751,7 @@ function buildPlanMeta(action,index){
     bestPartialScore:solverPlanResult?.bestPartialScore,
     inventoryUsed:solverPlanResult?.selectedInventoryUsed,
     perfectCandidates:solverPlanResult?.perfectCandidates||0,
+    perfectProbe:solverPlanResult?.perfectProbe||null,
     planMove:index+1,
     plannedMoves:solverPlan.length,
     chosen:actionLabel(state,action)
@@ -697,14 +762,16 @@ function drawRunInfo(path,index){
   let start=index,end=index; while(start>0&&path[start-1]?.type==='DRAW')start--; while(end+1<path.length&&path[end+1]?.type==='DRAW')end++;
   return {position:index-start+1,total:end-start+1};
 }
-function setDrawCounter(info){ const el=document.getElementById('draw-counter'); if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
+function setDrawCounter(info){ const el=document.getElementById('draw-counter'); el.classList.remove('reset-sign'); if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
+function setResetIndicator(){ const el=document.getElementById('draw-counter'); el.textContent='RESET'; el.classList.add('visible','reset-sign'); }
 async function previewDraw(info){ const btn=document.getElementById('draw-button'); setDrawCounter(info||{position:1,total:1}); btn.classList.add('solver-draw-flash'); await new Promise(r=>setTimeout(r,SOLVER_PREVIEW_MS)); btn.classList.remove('solver-draw-flash'); }
+async function previewReset(){ const btn=document.getElementById('draw-button'); setResetIndicator(); btn.classList.add('solver-reset-flash'); await new Promise(r=>setTimeout(r,SOLVER_PREVIEW_MS)); btn.classList.remove('solver-reset-flash'); }
 async function executePlannedAction(animated=true){
   if(solverPlanIndex>=solverPlan.length) return false;
   const action=solverPlan[solverPlanIndex];
   pendingSolverMeta=buildPlanMeta(action,solverPlanIndex);
   executingPlannedAction=true;
-  if(animated){ if(action.type==='DRAW') await previewDraw(drawRunInfo(solverPlan,solverPlanIndex)); else { setDrawCounter(null); await previewSolverAction(action); } }
+  if(animated){ if(action.type==='DRAW') await previewDraw(drawRunInfo(solverPlan,solverPlanIndex)); else if(action.type==='RESET') await previewReset(); else { setDrawCounter(null); await previewSolverAction(action); } }
   if(action.type==='KING') clearKing(action.a);
   else if(action.type==='MATCH') matchRefs(action.a,action.b);
   else if(action.type==='HOLD') moveToHold(action.a);
@@ -734,7 +801,7 @@ async function executeSolverStep(animated=true){
   const action=decision.action;
   if(!action){ pauseSolver(); setStatus('No legal strategic move remains.'); return false; }
   pendingSolverMeta=buildSolverMeta(decision);
-  if(animated){ if(action.type==='DRAW') await previewDraw({position:1,total:1}); else { setDrawCounter(null); await previewSolverAction(action); } }
+  if(animated){ if(action.type==='DRAW') await previewDraw({position:1,total:1}); else if(action.type==='RESET') await previewReset(); else { setDrawCounter(null); await previewSolverAction(action); } }
   if(action.type==='KING') clearKing(action.a);
   else if(action.type==='MATCH') matchRefs(action.a,action.b);
   else if(action.type==='HOLD') moveToHold(action.a);
@@ -758,8 +825,18 @@ async function startSolver(){
   solverRunning=true;
   solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
   solverActualSeen=new Map(); solverPlan=[]; solverPlanIndex=0; solverPlanResult=null;
-  setStatus(`Searching up to ${SEARCH_NODE_LIMIT.toLocaleString()} full-game scenarios before playing…`);
+  setStatus('Checking the known 8260 setup combinations first…');
+  document.getElementById('planProgress').textContent='8260 Perfect Score Probe starting…';
+  const perfect=await searchPerfectScore(simClone(state));
+  if(perfect.path){
+    solverPlanResult={statesExamined:perfect.probe.statesExamined,duplicatesSkipped:perfect.probe.duplicatesSkipped,deadBranches:0,solutionsFound:1,perfectCandidates:1,bestCompletedScore:PERFECT_SCORE,bestMoveCount:perfect.path.length,bestResets:0,bestScoreImprovements:1,bestPartialScore:0,limitReached:false,optimalityProven:false,stopReason:perfect.probe.stopReason,searchedDepth:perfect.path.length,perfectSetupSeeds:perfect.probe.setupCount,usedCompleteSolution:true,selectedPathLength:perfect.path.length,selectedFinalScore:PERFECT_SCORE,selectedInventoryUsed:24,selectedPerfectPossible:true,perfectProbe:perfect.probe};
+    solverPlan=perfect.path; solverPlanIndex=0; updatePlanPanel(solverPlanResult,perfect.probe.stopReason);
+    setStatus(`Perfect-score route found: ${perfect.probe.winningSetup}. Playing 8260 plan.`);
+    solverLoop(); return;
+  }
+  setStatus(`${perfect.probe.stopReason} Searching up to ${SEARCH_NODE_LIMIT.toLocaleString()} normal full-game scenarios…`);
   const found=await searchBestPlan();
+  found.result.perfectProbe=perfect.probe;
   solverPlanResult=found.result; solverPlan=found.path; solverPlanIndex=0;
   if(!solverPlan.length){ solverRunning=false; setStatus('No playable plan found.'); return; }
   setStatus(solverPlanResult.usedCompleteSolution?`Playing best complete solution found: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:`BEST PARTIAL — PUZZLE NOT SOLVED. Playing partial plan scoring ${solverPlanResult.bestPartialScore.toLocaleString()}.`);
@@ -768,7 +845,7 @@ async function startSolver(){
 function pauseSolver(){ solverRunning=false; }
 
 makePyramid(); loadInitialState();
-document.getElementById('draw-button').addEventListener('click',async()=>{ if(state.stockQueue.length){ await previewDraw({position:1,total:1}); draw(); } else resetStock(); });
+document.getElementById('draw-button').addEventListener('click',async()=>{ if(state.stockQueue.length){ await previewDraw({position:1,total:1}); draw(); } else { await previewReset(); resetStock(); } });
 document.getElementById('undo-button').addEventListener('click',undo);
 document.getElementById('download-button').addEventListener('click',downloadLog);
 document.getElementById('start-solver-button').addEventListener('click',startSolver);
