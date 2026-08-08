@@ -47,7 +47,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.0</div>
+<div class="version">Pyramid Solitaire v1.1.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -71,8 +71,30 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.0';
+const VERSION='Pyramid Solitaire v1.1.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
+const PAIR_COLORS={
+  A:'#ef4b3f',Q:'#ef4b3f',
+  '2':'#f59e42',J:'#f59e42',
+  '3':'#f4d447','10':'#f4d447',
+  '4':'#78b84a','9':'#78b84a',
+  '5':'#5b8fd9','8':'#5b8fd9',
+  '6':'#a86bd3','7':'#a86bd3'
+};
+const LEFT_COLOR_RANKS=new Set(['A','2','3','4','5','6']);
+function applyCardFace(el,rank){
+  if(!el) return;
+  const base='#f5f2d8';
+  if(!rank||rank==='K'){
+    el.style.background=rank==='K'?base:'';
+    return;
+  }
+  const color=PAIR_COLORS[rank];
+  if(!color){ el.style.background=base; return; }
+  el.style.background=LEFT_COLOR_RANKS.has(rank)
+    ? `linear-gradient(90deg, ${color} 0 50%, ${base} 50% 100%)`
+    : `linear-gradient(90deg, ${base} 0 50%, ${color} 50% 100%)`;
+}
 const BLOCKERS={1:[2,3],2:[4,5],3:[5,6],4:[7,8],5:[8,9],6:[9,10],7:[11,12],8:[12,13],9:[13,14],10:[14,15],11:[16,17],12:[17,18],13:[18,19],14:[19,20],15:[20,21],16:[22,23],17:[23,24],18:[24,25],19:[25,26],20:[26,27],21:[27,28]};
 
 let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false };
@@ -187,17 +209,17 @@ function refFromElement(el){
 }
 function renderAll(){
   for(let i=1;i<=28;i++){
-    const el=document.getElementById(`tile${i}`), rank=state.tileData[i]; el.querySelector('.rank').textContent=rank||''; el.classList.toggle('hidden-card',!rank);
+    const el=document.getElementById(`tile${i}`), rank=state.tileData[i]; el.querySelector('.rank').textContent=rank||''; el.classList.toggle('hidden-card',!rank); applyCardFace(el,rank);
   }
   renderInventory(); renderHold(); renderScore(); renderLog(); renderSelection();
   document.getElementById('draw-button').textContent=state.stockQueue.length?'Draw':'Reset';
 }
 function renderInventory(){
   const ids=currentInventoryIds(); const slots=[document.getElementById('tilez'),document.getElementById('tiley'),document.getElementById('tilex')];
-  slots.forEach((el,index)=>{ const id=ids[index]; el.dataset.cardId=id??''; el.querySelector('.rank').textContent=id?state.tileData[id]:''; el.classList.toggle('hidden-card',!id); });
+  slots.forEach((el,index)=>{ const id=ids[index]; const rank=id?state.tileData[id]:''; el.dataset.cardId=id??''; el.querySelector('.rank').textContent=rank; el.classList.toggle('hidden-card',!id); applyCardFace(el,rank); });
 }
 function renderHold(){
-  const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible';
+  const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible'; if(rank) applyCardFace(el,rank); else el.style.background='transparent';
 }
 function renderScore(){ document.getElementById('score').textContent=`Score: ${state.score}`; }
 function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
@@ -209,8 +231,27 @@ function flashPoints(text,negative=false){ const el=document.getElementById('fla
 
 function bindPointerEvents(){
   document.addEventListener('pointerdown',e=>{
-    const ref=refFromElement(e.target); if(!ref||!isPlayable(ref)) return;
-    const sourceEl=elementForRef(ref); pointerSession={id:e.pointerId,ref,startX:e.clientX,startY:e.clientY,dragging:false,ghost:null,sourceEl}; sourceEl.setPointerCapture?.(e.pointerId);
+    const ref=refFromElement(e.target);
+    if(!ref) return;
+
+    // Preserve the original Puzzle Pyramid workflow:
+    // select a playable card, then tap the empty Hold slot.
+    if(ref.zone==='hold' && !state.hold){
+      if(selected){
+        e.preventDefault();
+        const source=selected;
+        selected=null;
+        moveToHold(source);
+      } else {
+        setStatus('Select a playable card first, then tap Hold.');
+      }
+      return;
+    }
+
+    if(!isPlayable(ref)) return;
+    const sourceEl=elementForRef(ref);
+    pointerSession={id:e.pointerId,ref,startX:e.clientX,startY:e.clientY,dragging:false,ghost:null,sourceEl};
+    sourceEl.setPointerCapture?.(e.pointerId);
   });
   document.addEventListener('pointermove',e=>{
     const p=pointerSession; if(!p||p.id!==e.pointerId) return;

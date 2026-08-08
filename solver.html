@@ -43,12 +43,13 @@ h1 { text-align:center; margin:0 0 4px; }
 .drag-ghost { position:fixed; pointer-events:none; z-index:9999; opacity:.9; transform:translate(-50%,-50%) scale(1.08); }
 .game-over { color:#238636; font-weight:700; }
 .solver-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:14px auto 0}.solver-controls button{padding:10px 14px;border:0;border-radius:7px;font-weight:700;cursor:pointer}.solver-note{text-align:center;color:#666;font-size:13px;margin-top:8px}
+.thought-panel{max-width:760px;margin:14px auto 0;border:1px solid #bbb;border-radius:8px;padding:10px 12px;background:#fafafa}.thought-panel h2{font-size:18px;margin:0 0 6px}.thought-summary{font-size:13px;color:#555;margin-bottom:8px}.candidate-table{width:100%;border-collapse:collapse;font-size:13px}.candidate-table th,.candidate-table td{border-top:1px solid #ddd;padding:6px 5px;text-align:left;vertical-align:top}.candidate-table th:nth-child(2),.candidate-table td:nth-child(2){text-align:right;white-space:nowrap}.candidate-table tr.chosen{font-weight:700;background:#eef8ee}.strategy-metric{display:inline-block;margin-right:12px}
 @media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} }
 </style>
 </head>
 <body>
 <h1>Pyramid Solitaire Solver</h1>
-<div class="version">Pyramid Solitaire v1.0</div>
+<div class="version">Pyramid Solitaire v1.1.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -71,19 +72,49 @@ h1 { text-align:center; margin:0 0 4px; }
   <button id="pause-solver-button">Pause Solver</button>
   <button id="forward-step-button">Forward Step</button>
 </div>
-<div class="solver-note">v1 uses a fast greedy solver. It follows legal moves but is not yet guaranteed to find every solvable board.</div>
+<div class="solver-note">v1.1 evaluates every legal move with a short lookahead. It can use Hold strategically, but it is not yet an exhaustive proof solver.</div>
 <div id="status" class="status">Use Start Solver, or step through one legal move at a time.</div>
+<div class="thought-panel">
+  <h2>Solver Decision Explorer</h2>
+  <div id="thoughtSummary" class="thought-summary">No decision evaluated yet.</div>
+  <table class="candidate-table">
+    <thead><tr><th>Candidate move</th><th>Rating</th><th>Why it matters</th></tr></thead>
+    <tbody id="candidateBody"><tr><td colspan="3">Press Forward Step or Start Solver.</td></tr></tbody>
+  </table>
+</div>
 <div class="log-panel">
   <h2>Move Log</h2>
   <ol id="moveLog"></ol>
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.0';
+const VERSION='Pyramid Solitaire v1.1.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
+const PAIR_COLORS={
+  A:'#ef4b3f',Q:'#ef4b3f',
+  '2':'#f59e42',J:'#f59e42',
+  '3':'#f4d447','10':'#f4d447',
+  '4':'#78b84a','9':'#78b84a',
+  '5':'#5b8fd9','8':'#5b8fd9',
+  '6':'#a86bd3','7':'#a86bd3'
+};
+const LEFT_COLOR_RANKS=new Set(['A','2','3','4','5','6']);
+function applyCardFace(el,rank){
+  if(!el) return;
+  const base='#f5f2d8';
+  if(!rank||rank==='K'){
+    el.style.background=rank==='K'?base:'';
+    return;
+  }
+  const color=PAIR_COLORS[rank];
+  if(!color){ el.style.background=base; return; }
+  el.style.background=LEFT_COLOR_RANKS.has(rank)
+    ? `linear-gradient(90deg, ${color} 0 50%, ${base} 50% 100%)`
+    : `linear-gradient(90deg, ${base} 0 50%, ${color} 50% 100%)`;
+}
 const BLOCKERS={1:[2,3],2:[4,5],3:[5,6],4:[7,8],5:[8,9],6:[9,10],7:[11,12],8:[12,13],9:[13,14],10:[14,15],11:[16,17],12:[17,18],13:[18,19],14:[19,20],15:[20,21],16:[22,23],17:[23,24],18:[24,25],19:[25,26],20:[26,27],21:[27,28]};
 
-let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false };
+let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, resetsUsed:0 };
 let history=[];
 let selected=null;
 let pointerSession=null;
@@ -169,7 +200,7 @@ function draw(){
 }
 function resetStock(){
   if(!state.inPlay.length){ setStatus('No inventory cards remain.'); return; }
-  saveSnapshot(); state.stockQueue=[...state.inPlay].sort((a,b)=>a-b); state.inPlay=[]; state.streak=0; const before=state.score; state.score=Math.max(0,state.score-50); const deduction=before-state.score;
+  saveSnapshot(); state.stockQueue=[...state.inPlay].sort((a,b)=>a-b); state.inPlay=[]; state.streak=0; state.resetsUsed=(state.resetsUsed||0)+1; const before=state.score; state.score=Math.max(0,state.score-50); const deduction=before-state.score;
   if(deduction) flashPoints(`-${deduction}`,true); commitLog('RESET',`Reset inventory; -${deduction} points. Streak reset.`); finishAction();
 }
 function finishAction(...refs){
@@ -195,17 +226,17 @@ function refFromElement(el){
 }
 function renderAll(){
   for(let i=1;i<=28;i++){
-    const el=document.getElementById(`tile${i}`), rank=state.tileData[i]; el.querySelector('.rank').textContent=rank||''; el.classList.toggle('hidden-card',!rank);
+    const el=document.getElementById(`tile${i}`), rank=state.tileData[i]; el.querySelector('.rank').textContent=rank||''; el.classList.toggle('hidden-card',!rank); applyCardFace(el,rank);
   }
   renderInventory(); renderHold(); renderScore(); renderLog(); renderSelection();
   document.getElementById('draw-button').textContent=state.stockQueue.length?'Draw':'Reset';
 }
 function renderInventory(){
   const ids=currentInventoryIds(); const slots=[document.getElementById('tilez'),document.getElementById('tiley'),document.getElementById('tilex')];
-  slots.forEach((el,index)=>{ const id=ids[index]; el.dataset.cardId=id??''; el.querySelector('.rank').textContent=id?state.tileData[id]:''; el.classList.toggle('hidden-card',!id); });
+  slots.forEach((el,index)=>{ const id=ids[index]; const rank=id?state.tileData[id]:''; el.dataset.cardId=id??''; el.querySelector('.rank').textContent=rank; el.classList.toggle('hidden-card',!id); applyCardFace(el,rank); });
 }
 function renderHold(){
-  const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible';
+  const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible'; if(rank) applyCardFace(el,rank); else el.style.background='transparent';
 }
 function renderScore(){ document.getElementById('score').textContent=`Score: ${state.score}`; }
 function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
@@ -217,7 +248,14 @@ function flashPoints(text,negative=false){ const el=document.getElementById('fla
 
 function bindPointerEvents(){
   document.addEventListener('pointerdown',e=>{
-    const ref=refFromElement(e.target); if(!ref||!isPlayable(ref)) return;
+    const ref=refFromElement(e.target);
+    if(!ref) return;
+    if(ref.zone==='hold' && !state.hold){
+      if(selected){ e.preventDefault(); const source=selected; selected=null; moveToHold(source); }
+      else setStatus('Select a playable card first, then tap Hold.');
+      return;
+    }
+    if(!isPlayable(ref)) return;
     const sourceEl=elementForRef(ref); pointerSession={id:e.pointerId,ref,startX:e.clientX,startY:e.clientY,dragging:false,ghost:null,sourceEl}; sourceEl.setPointerCapture?.(e.pointerId);
   });
   document.addEventListener('pointermove',e=>{
@@ -249,36 +287,183 @@ function downloadLog(){
 
 
 let solverTimer=null;
-function allPlayableRefs(){
+const SEARCH_DEPTH=4;
+const SEARCH_NODE_LIMIT=5000;
+const SEARCH_BEAM_WIDTH=14;
+const MAX_SOLVER_RESETS=5;
+
+function simClone(s){ return JSON.parse(JSON.stringify(s)); }
+function simCurrentInventoryIds(s){ return [...s.inPlay].sort((a,b)=>b-a).slice(0,3); }
+function simCurrentZId(s){ return simCurrentInventoryIds(s)[0]??null; }
+function simRankOf(s,ref){
+  if(ref.zone==='hold') return s.hold?.rank||null;
+  return s.tileData[ref.cardId]||null;
+}
+function simPyramidPlayable(s,id){ return (BLOCKERS[id]||[]).every(b=>s.tileData[b]===null); }
+function simPlayable(s,ref){
+  if(!ref||s.gameOver) return false;
+  if(ref.zone==='hold') return !!s.hold;
+  if(ref.zone==='inventory') return Number(ref.cardId)===simCurrentZId(s);
+  return !!s.tileData[ref.cardId] && simPyramidPlayable(s,Number(ref.cardId));
+}
+function simPair(s,a,b){ const x=simRankOf(s,a),y=simRankOf(s,b); return !!x&&!!y&&RANK_VALUE[x]+RANK_VALUE[y]===13; }
+function simRemove(s,ref){
+  if(ref.zone==='hold'){ s.hold=null; return; }
+  const id=Number(ref.cardId); s.tileData[id]=null;
+  if(id>=29){ const i=s.inPlay.indexOf(id); if(i>=0)s.inPlay.splice(i,1); const q=s.stockQueue.indexOf(id); if(q>=0)s.stockQueue.splice(q,1); }
+}
+function simAward(s){ s.streak++; s.score+=Math.min(s.streak,5)*50; }
+function simPlayableRefs(s){
   const refs=[];
-  for(let i=1;i<=28;i++) if(state.tileData[i]&&isPyramidPlayable(i)) refs.push({zone:'pyramid',cardId:i});
-  const z=currentZId(); if(z) refs.push({zone:'inventory',cardId:z});
-  if(state.hold) refs.push({zone:'hold',cardId:'h'});
+  for(let i=1;i<=28;i++) if(s.tileData[i]&&simPyramidPlayable(s,i)) refs.push({zone:'pyramid',cardId:i});
+  const z=simCurrentZId(s); if(z) refs.push({zone:'inventory',cardId:z});
+  if(s.hold) refs.push({zone:'hold',cardId:'h'});
   return refs;
 }
-function chooseGreedyAction(){
-  if(state.gameOver) return null;
-  const refs=allPlayableRefs();
-  const king=refs.find(r=>rankOf(r)==='K');
-  if(king) return {type:'KING',a:king};
-  for(let i=0;i<refs.length;i++) for(let j=i+1;j<refs.length;j++) if(isPair(refs[i],refs[j])) return {type:'MATCH',a:refs[i],b:refs[j]};
-  if(state.stockQueue.length) return {type:'DRAW'};
-  if(state.inPlay.length) return {type:'RESET'};
-  return null;
+function generateLegalActions(s){
+  if(s.gameOver) return [];
+  const refs=simPlayableRefs(s), actions=[];
+  for(const r of refs) if(simRankOf(s,r)==='K') actions.push({type:'KING',a:r});
+  for(let i=0;i<refs.length;i++) for(let j=i+1;j<refs.length;j++) if(simPair(s,refs[i],refs[j])) actions.push({type:'MATCH',a:refs[i],b:refs[j]});
+  if(!s.hold){
+    for(const r of refs){
+      if(r.zone==='hold') continue;
+      if(simRankOf(s,r)==='K') continue; // scoring a playable King is always stronger than parking it
+      actions.push({type:'HOLD',a:r});
+    }
+  }
+  if(s.stockQueue.length) actions.push({type:'DRAW'});
+  else if(s.inPlay.length && (s.resetsUsed||0)<MAX_SOLVER_RESETS) actions.push({type:'RESET'});
+  return actions;
+}
+function simApplyAction(s,action){
+  const n=simClone(s);
+  if(action.type==='KING'){
+    const id=Number(action.a.cardId); simRemove(n,action.a); simAward(n); if(id===1)n.gameOver=true;
+  }else if(action.type==='MATCH'){
+    const id1=Number(action.a.cardId),id2=Number(action.b.cardId); simRemove(n,action.a); simRemove(n,action.b); simAward(n); if(id1===1||id2===1)n.gameOver=true;
+  }else if(action.type==='HOLD'){
+    const rank=simRankOf(n,action.a),id=action.a.cardId; simRemove(n,action.a); n.hold={rank,sourceId:id,sourceZone:action.a.zone}; if(Number(id)===1)n.gameOver=true;
+  }else if(action.type==='DRAW'){
+    const drawn=n.stockQueue.splice(0,Math.min(3,n.stockQueue.length)); n.inPlay.push(...drawn); n.streak=0;
+  }else if(action.type==='RESET'){
+    n.stockQueue=[...n.inPlay].sort((a,b)=>a-b); n.inPlay=[]; n.streak=0; n.score=Math.max(0,n.score-50); n.resetsUsed=(n.resetsUsed||0)+1;
+  }
+  return n;
+}
+function clearedPyramidCount(s){ let n=0; for(let i=1;i<=28;i++) if(s.tileData[i]===null)n++; return n; }
+function exposedPyramidCount(s){ let n=0; for(let i=1;i<=28;i++) if(s.tileData[i]&&simPyramidPlayable(s,i))n++; return n; }
+function immediateScoringCount(s){
+  const refs=simPlayableRefs(s); let n=refs.filter(r=>simRankOf(s,r)==='K').length;
+  for(let i=0;i<refs.length;i++) for(let j=i+1;j<refs.length;j++) if(simPair(s,refs[i],refs[j])) n++;
+  return n;
+}
+function holdQuality(s){
+  if(!s.hold) return 0;
+  const h={zone:'hold',cardId:'h'}; const refs=simPlayableRefs(s).filter(r=>r.zone!=='hold');
+  return refs.some(r=>simPair(s,h,r))?35:-10;
+}
+function evaluateState(s){
+  if(s.gameOver) return 1000000 + s.score*100;
+  const cleared=clearedPyramidCount(s), exposed=exposedPyramidCount(s), scoring=immediateScoringCount(s);
+  return s.score*10 + cleared*130 + exposed*28 + scoring*65 + s.streak*35 + holdQuality(s) - (s.resetsUsed||0)*80;
+}
+function stateKey(s,depth){
+  const pyramid=[]; for(let i=1;i<=28;i++) pyramid.push(s.tileData[i]||'-');
+  return [depth,pyramid.join(','),s.stockQueue.join('.'),[...s.inPlay].sort((a,b)=>a-b).join('.'),s.hold?.rank||'-',s.score,s.streak,s.resetsUsed||0].join('|');
+}
+function quickActionBias(s,action,next){
+  let b=0;
+  if(action.type==='MATCH') b+=120;
+  if(action.type==='KING') b+=90;
+  if(action.type==='HOLD') b-=25;
+  if(action.type==='DRAW') b-=80 + s.streak*35;
+  if(action.type==='RESET') b-=180;
+  b+=(clearedPyramidCount(next)-clearedPyramidCount(s))*100;
+  b+=(exposedPyramidCount(next)-exposedPyramidCount(s))*35;
+  return b;
+}
+function searchValue(s,depth,ctx){
+  ctx.nodes++;
+  if(ctx.nodes>=SEARCH_NODE_LIMIT || depth<=0 || s.gameOver) return evaluateState(s);
+  const key=stateKey(s,depth); if(ctx.memo.has(key)) return ctx.memo.get(key);
+  let actions=generateLegalActions(s);
+  if(!actions.length){ const v=evaluateState(s)-20000; ctx.memo.set(key,v); return v; }
+  actions=actions.map(a=>{const n=simApplyAction(s,a);return {a,n,q:evaluateState(n)+quickActionBias(s,a,n)}}).sort((x,y)=>y.q-x.q).slice(0,SEARCH_BEAM_WIDTH);
+  let best=-Infinity;
+  for(const item of actions){
+    if(ctx.nodes>=SEARCH_NODE_LIMIT) break;
+    const v=searchValue(item.n,depth-1,ctx);
+    if(v>best) best=v;
+  }
+  ctx.memo.set(key,best); return best;
+}
+function refLabelForState(s,ref){
+  if(ref.zone==='hold') return `Hold ${simRankOf(s,ref)}`;
+  if(ref.zone==='inventory') return `Z / tile ${ref.cardId} ${simRankOf(s,ref)}`;
+  return `tile ${ref.cardId} ${simRankOf(s,ref)}`;
+}
+function actionLabel(s,a){
+  if(a.type==='KING') return `Clear ${refLabelForState(s,a.a)} (K)`;
+  if(a.type==='MATCH') return `Match ${refLabelForState(s,a.a)} + ${refLabelForState(s,a.b)}`;
+  if(a.type==='HOLD') return `Hold ${refLabelForState(s,a.a)}`;
+  if(a.type==='DRAW') return 'Draw next inventory cards';
+  if(a.type==='RESET') return 'Reset inventory';
+  return a.type;
+}
+function explainCandidate(before,action,after){
+  const reasons=[];
+  const newly=exposedPyramidCount(after)-exposedPyramidCount(before);
+  const cleared=clearedPyramidCount(after)-clearedPyramidCount(before);
+  if(cleared>0) reasons.push(`clears ${cleared} pyramid card${cleared===1?'':'s'}`);
+  if(newly>0) reasons.push(`exposes ${newly} new pyramid card${newly===1?'':'s'}`);
+  if((action.type==='MATCH'||action.type==='KING') && before.streak>0) reasons.push(`continues streak ${before.streak}→${after.streak}`);
+  if(action.type==='MATCH' && (action.a.zone==='inventory'||action.b.zone==='inventory')) reasons.push('advances playable Z inventory');
+  if(action.type==='HOLD') reasons.push('setup move; preserves card without breaking streak');
+  if(action.type==='DRAW') reasons.push(`breaks streak ${before.streak}→0`);
+  if(action.type==='RESET') reasons.push('costs 50 points and starts a new inventory pass');
+  const future=immediateScoringCount(after); if(future>0) reasons.push(`${future} immediate scoring option${future===1?'':'s'} remain`);
+  if(after.gameOver) reasons.push('finishes the puzzle');
+  return reasons.join('; ')||'legal move';
+}
+function evaluateDecision(){
+  const actions=generateLegalActions(state);
+  if(!actions.length) return {action:null,candidates:[],nodes:0};
+  const ctx={nodes:0,memo:new Map()};
+  const candidates=actions.map(action=>{
+    const next=simApplyAction(state,action);
+    const rating=searchValue(next,SEARCH_DEPTH-1,ctx)+quickActionBias(state,action,next);
+    return {action,rating,next,label:actionLabel(state,action),reason:explainCandidate(state,action,next)};
+  }).sort((a,b)=>b.rating-a.rating);
+  return {action:candidates[0].action,candidates,nodes:ctx.nodes};
+}
+function renderDecision(decision){
+  const summary=document.getElementById('thoughtSummary'), body=document.getElementById('candidateBody');
+  body.innerHTML='';
+  if(!decision||!decision.candidates.length){ summary.textContent='No legal move found.'; body.innerHTML='<tr><td colspan="3">No candidates.</td></tr>'; return; }
+  summary.innerHTML=`<span class="strategy-metric"><strong>Lookahead:</strong> ${SEARCH_DEPTH} plies</span><span class="strategy-metric"><strong>States examined:</strong> ${decision.nodes}</span><span class="strategy-metric"><strong>Choice:</strong> ${decision.candidates[0].label}</span>`;
+  decision.candidates.slice(0,10).forEach((c,i)=>{
+    const tr=document.createElement('tr'); if(i===0) tr.className='chosen';
+    const td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td');
+    td1.textContent=(i===0?'✓ ':'')+c.label; td2.textContent=Math.round(c.rating).toLocaleString(); td3.textContent=c.reason;
+    tr.append(td1,td2,td3); body.appendChild(tr);
+  });
 }
 function executeSolverStep(){
-  const action=chooseGreedyAction();
-  if(!action){ pauseSolver(); setStatus('No legal greedy move remains.'); return false; }
+  const decision=evaluateDecision(); renderDecision(decision);
+  const action=decision.action;
+  if(!action){ pauseSolver(); setStatus('No legal strategic move remains.'); return false; }
   if(action.type==='KING') clearKing(action.a);
   else if(action.type==='MATCH') matchRefs(action.a,action.b);
+  else if(action.type==='HOLD') moveToHold(action.a);
   else if(action.type==='DRAW') draw();
   else if(action.type==='RESET') resetStock();
   return true;
 }
 function startSolver(){
   if(solverTimer||state.gameOver) return;
-  setStatus('Solver running…');
-  solverTimer=setInterval(()=>{ if(!executeSolverStep()||state.gameOver) pauseSolver(); },650);
+  setStatus('Strategic solver running…');
+  solverTimer=setInterval(()=>{ if(!executeSolverStep()||state.gameOver) pauseSolver(); },850);
 }
 function pauseSolver(){ if(solverTimer){ clearInterval(solverTimer); solverTimer=null; } }
 
