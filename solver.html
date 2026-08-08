@@ -45,13 +45,13 @@ h1 { text-align:center; margin:0 0 4px; }
 .game-over { color:#238636; font-weight:700; }
 .solver-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:14px auto 0}.solver-controls button{padding:10px 14px;border:0;border-radius:7px;font-weight:700;cursor:pointer}.solver-note{text-align:center;color:#666;font-size:13px;margin-top:8px}
 .thought-panel{max-width:760px;margin:14px auto 0;border:1px solid #bbb;border-radius:8px;padding:10px 12px;background:#fafafa}.thought-panel h2{font-size:18px;margin:0 0 6px}.thought-summary{font-size:13px;color:#555;margin-bottom:8px}.candidate-table{width:100%;border-collapse:collapse;font-size:13px}.candidate-table th,.candidate-table td{border-top:1px solid #ddd;padding:6px 5px;text-align:left;vertical-align:top}.candidate-table th:nth-child(2),.candidate-table td:nth-child(2){text-align:right;white-space:nowrap}.candidate-table tr.chosen{font-weight:700;background:#eef8ee}.strategy-metric{display:inline-block;margin-right:12px}
-.search-stats{max-width:760px;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.search-stat{border:1px solid #ccc;border-radius:8px;padding:8px;text-align:center;background:#fff}.search-stat strong{display:block;font-size:18px}.search-label{font-size:11px;color:#666}.optimality{max-width:760px;margin:8px auto 0;text-align:center;font-size:12px;color:#666}@media(max-width:620px){.search-stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.search-stats{max-width:760px;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.search-stat{border:1px solid #ccc;border-radius:8px;padding:8px;text-align:center;background:#fff}.search-stat strong{display:block;font-size:18px}.search-label{font-size:11px;color:#666}.optimality{max-width:760px;margin:8px auto 0;text-align:center;font-size:12px;color:#666}.plan-summary{max-width:760px;margin:12px auto 0;border:1px solid #aaa;border-radius:8px;padding:10px 12px;background:#f7fbff}.plan-summary h2{font-size:18px;margin:0 0 8px}.plan-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.plan-item{text-align:center;border:1px solid #d0d7de;border-radius:7px;padding:7px;background:#fff}.plan-item strong{display:block;font-size:18px}.plan-item span{font-size:11px;color:#666}.plan-status{margin-top:8px;font-size:13px;text-align:center}.plan-progress{margin-top:6px;font-size:12px;color:#555;text-align:center}@media(max-width:620px){.search-stats,.plan-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} }
 </style>
 </head>
 <body>
 <h1>Pyramid Solitaire Solver</h1>
-<div class="version">Pyramid Solitaire v1.2.0</div>
+<div class="version">Pyramid Solitaire v1.3.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -74,7 +74,7 @@ h1 { text-align:center; margin:0 0 4px; }
   <button id="pause-solver-button">Pause Solver</button>
   <button id="forward-step-button">Forward Step</button>
 </div>
-<div class="solver-note">v1.2 searches up to 25,000 simulated states per decision, compares legal alternatives, skips repeated/worse states, and can use Hold strategically. It reports the best move found within its search limits; optimality is not yet proven.</div>
+<div class="solver-note">v1.3 Start Solver searches for a complete high-scoring plan before playback. It can examine up to 25,000 simulated states across the plan search. Forward Step still uses an 8-ply tactical search when no saved plan is available.</div>
 <div class="search-stats">
   <div class="search-stat"><strong id="decisionStates">0</strong><span class="search-label">states this decision</span></div>
   <div class="search-stat"><strong id="totalStates">0</strong><span class="search-label">states this solver run</span></div>
@@ -82,6 +82,17 @@ h1 { text-align:center; margin:0 0 4px; }
   <div class="search-stat"><strong id="deadBranches">0</strong><span class="search-label">dead branches found</span></div>
 </div>
 <div id="optimalityStatus" class="optimality">BEST FOUND mode — not an optimality proof.</div>
+<div class="plan-summary">
+  <h2>Full-Plan Search Summary</h2>
+  <div class="plan-grid">
+    <div class="plan-item"><strong id="planStates">0</strong><span>scenarios examined</span></div>
+    <div class="plan-item"><strong id="solutionsFound">0</strong><span>complete solutions found</span></div>
+    <div class="plan-item"><strong id="bestPlanScore">—</strong><span>best completed score</span></div>
+    <div class="plan-item"><strong id="bestImprovements">0</strong><span>best-score improvements</span></div>
+  </div>
+  <div id="planStatus" class="plan-status">No full-plan search run yet.</div>
+  <div id="planProgress" class="plan-progress"></div>
+</div>
 <div id="status" class="status">Use Start Solver, or step through one legal move at a time.</div>
 <div class="thought-panel">
   <h2>Solver Decision Explorer</h2>
@@ -97,7 +108,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.2.0';
+const VERSION='Pyramid Solitaire v1.3.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -294,19 +305,25 @@ function highlightDropTarget(x,y,source){
   const valid=(target.zone==='hold'&&!state.hold)|| (isPlayable(target)&&isPair(source,target)); el.classList.add(valid?'valid-target':'invalid-target');
 }
 function downloadLog(){
-  const payload={version:VERSION,searchConfig:{depth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,beamWidth:SEARCH_BEAM_WIDTH,maxResets:MAX_SOLVER_RESETS},solverSessionStats,finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_solver_log.json'; a.click(); URL.revokeObjectURL(a.href);
+  const payload={version:VERSION,searchConfig:{tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_solver_log.json'; a.click(); URL.revokeObjectURL(a.href);
 }
 
 
-const SEARCH_DEPTH=6;
+const SEARCH_DEPTH=8;
 const SEARCH_NODE_LIMIT=25000;
 const SEARCH_BEAM_WIDTH=18;
+const PLAN_BEAM_WIDTH=320;
+const PLAN_MAX_DEPTH=100;
 const MAX_SOLVER_RESETS=5;
 const SOLVER_PREVIEW_MS=520;
 let solverRunning=false;
 let solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
 let solverActualSeen=new Map();
 let pendingSolverMeta=null;
+let solverPlan=[];
+let solverPlanIndex=0;
+let solverPlanResult=null;
+let executingPlannedAction=false;
 
 function simClone(s){ return JSON.parse(JSON.stringify(s)); }
 function simCurrentInventoryIds(s){ return [...s.inPlay].sort((a,b)=>b-a).slice(0,3); }
@@ -515,6 +532,121 @@ function buildSolverMeta(decision){
     topCandidates:decision.candidates.slice(0,5).map(c=>({move:c.label,rating:Math.round(c.rating),reason:c.reason}))
   };
 }
+
+function betterCompleted(a,b){
+  if(!b) return true;
+  if(a.state.score!==b.state.score) return a.state.score>b.state.score;
+  if((a.state.resetsUsed||0)!==(b.state.resetsUsed||0)) return (a.state.resetsUsed||0)<(b.state.resetsUsed||0);
+  return a.path.length<b.path.length;
+}
+function planRank(node){
+  const s=node.state;
+  return evaluateState(s) + immediateScoringCount(s)*90 + s.streak*45 - node.path.length*2;
+}
+function updatePlanPanel(result,progressText=''){
+  document.getElementById('planStates').textContent=(result?.statesExamined||0).toLocaleString();
+  document.getElementById('solutionsFound').textContent=(result?.solutionsFound||0).toLocaleString();
+  document.getElementById('bestPlanScore').textContent=result?.bestCompletedScore!=null?result.bestCompletedScore.toLocaleString():'—';
+  document.getElementById('bestImprovements').textContent=(result?.bestScoreImprovements||0).toLocaleString();
+  const status=document.getElementById('planStatus');
+  if(!result){ status.textContent='No full-plan search run yet.'; }
+  else if(result.bestCompletedScore!=null){ status.textContent=`BEST COMPLETE SOLUTION FOUND: ${result.bestCompletedScore.toLocaleString()} points in ${result.bestMoveCount} moves with ${result.bestResets} reset${result.bestResets===1?'':'s'}.`; }
+  else { status.textContent='No complete solution found within this search limit; best partial plan will be used.'; }
+  document.getElementById('planProgress').textContent=progressText||result?.stopReason||'';
+}
+function planStateKey(s){ return structuralStateKey(s,'plan',true); }
+async function searchBestPlan(){
+  const initial=simClone(state);
+  const result={statesExamined:0,duplicatesSkipped:0,deadBranches:0,solutionsFound:0,bestCompletedScore:null,bestMoveCount:null,bestResets:null,bestScoreImprovements:0,limitReached:false,optimalityProven:false,stopReason:'',searchedDepth:0};
+  let frontier=[{state:initial,path:[]}];
+  let bestComplete=null;
+  let bestPartial={state:initial,path:[],rank:planRank({state:initial,path:[]})};
+  const seen=new Map(); seen.set(planStateKey(initial),initial.score);
+  updatePlanPanel(result,'Starting full-plan search…');
+  for(let depth=0; depth<PLAN_MAX_DEPTH && frontier.length && result.statesExamined<SEARCH_NODE_LIMIT; depth++){
+    result.searchedDepth=depth+1;
+    const nextNodes=[];
+    for(const node of frontier){
+      const actions=generateLegalActions(node.state);
+      if(!actions.length){ result.deadBranches++; continue; }
+      const ordered=actions.map(action=>{
+        const next=simApplyAction(node.state,action);
+        return {action,next,q:evaluateState(next)+quickActionBias(node.state,action,next)};
+      }).sort((a,b)=>b.q-a.q);
+      for(const item of ordered){
+        if(result.statesExamined>=SEARCH_NODE_LIMIT){ result.limitReached=true; break; }
+        result.statesExamined++;
+        const path=node.path.concat([item.action]);
+        const next=item.next;
+        if(next.gameOver){
+          result.solutionsFound++;
+          const candidate={state:next,path};
+          if(betterCompleted(candidate,bestComplete)){
+            bestComplete=candidate;
+            result.bestCompletedScore=next.score;
+            result.bestMoveCount=path.length;
+            result.bestResets=next.resetsUsed||0;
+            result.bestScoreImprovements++;
+          }
+          continue;
+        }
+        const key=planStateKey(next), prev=seen.get(key);
+        if(prev!==undefined && prev>=next.score){ result.duplicatesSkipped++; continue; }
+        seen.set(key,next.score);
+        const rank=planRank({state:next,path});
+        if(rank>bestPartial.rank) bestPartial={state:next,path,rank};
+        nextNodes.push({state:next,path,rank});
+      }
+      if(result.limitReached) break;
+    }
+    nextNodes.sort((a,b)=>b.rank-a.rank);
+    frontier=nextNodes.slice(0,PLAN_BEAM_WIDTH);
+    updatePlanPanel(result,`Searching… depth ${depth+1}; frontier ${frontier.length.toLocaleString()}; ${(result.statesExamined).toLocaleString()} scenarios examined.`);
+    await new Promise(r=>setTimeout(r,0));
+  }
+  if(result.limitReached) result.stopReason=`Stopped at the ${SEARCH_NODE_LIMIT.toLocaleString()}-scenario limit. Best result found, not proof of optimality.`;
+  else if(!frontier.length) result.stopReason='Search frontier exhausted within the beam search. Because beam pruning was used, optimality is not proven.';
+  else result.stopReason=`Stopped at plan depth ${PLAN_MAX_DEPTH}. Best result found, not proof of optimality.`;
+  const chosen=bestComplete||bestPartial;
+  result.usedCompleteSolution=!!bestComplete;
+  result.selectedPathLength=chosen.path.length;
+  result.selectedFinalScore=chosen.state.score;
+  result.duplicatesSkipped=result.duplicatesSkipped;
+  result.deadBranches=result.deadBranches;
+  updatePlanPanel(result,result.stopReason);
+  return {result,path:chosen.path};
+}
+function buildPlanMeta(action,index){
+  return {
+    mode:'FULL_PLAN',
+    resultLabel:solverPlanResult?.usedCompleteSolution?'BEST COMPLETE FOUND':'BEST PARTIAL FOUND',
+    optimalityProven:false,
+    planStatesExamined:solverPlanResult?.statesExamined||0,
+    completeSolutionsFound:solverPlanResult?.solutionsFound||0,
+    bestCompletedScore:solverPlanResult?.bestCompletedScore,
+    planMove:index+1,
+    plannedMoves:solverPlan.length,
+    chosen:actionLabel(state,action)
+  };
+}
+async function executePlannedAction(animated=true){
+  if(solverPlanIndex>=solverPlan.length) return false;
+  const action=solverPlan[solverPlanIndex];
+  pendingSolverMeta=buildPlanMeta(action,solverPlanIndex);
+  executingPlannedAction=true;
+  if(animated) await previewSolverAction(action);
+  if(action.type==='KING') clearKing(action.a);
+  else if(action.type==='MATCH') matchRefs(action.a,action.b);
+  else if(action.type==='HOLD') moveToHold(action.a);
+  else if(action.type==='DRAW') draw();
+  else if(action.type==='RESET') resetStock();
+  solverPlanIndex++;
+  executingPlannedAction=false;
+  pendingSolverMeta=null;
+  document.getElementById('planProgress').textContent=`Playing planned move ${solverPlanIndex} of ${solverPlan.length}.`;
+  return true;
+}
+
 async function executeSolverStep(animated=true){
   const effective=effectiveActualKey(state);
   const previousBest=solverActualSeen.get(effective);
@@ -542,19 +674,25 @@ async function executeSolverStep(animated=true){
   return true;
 }
 async function solverLoop(){
-  while(solverRunning && !state.gameOver){
-    const ok=await executeSolverStep(true);
+  while(solverRunning && !state.gameOver && solverPlanIndex<solverPlan.length){
+    const ok=await executePlannedAction(true);
     if(!ok||!solverRunning||state.gameOver) break;
     await new Promise(r=>setTimeout(r,260));
   }
   solverRunning=false;
+  if(state.gameOver) document.getElementById('planProgress').textContent=`Plan completed. Final score: ${state.score.toLocaleString()}.`;
+  else if(solverPlanIndex>=solverPlan.length) setStatus('Saved plan finished.');
 }
-function startSolver(){
+async function startSolver(){
   if(solverRunning||state.gameOver) return;
   solverRunning=true;
   solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
-  solverActualSeen=new Map();
-  setStatus('Strategic solver running…');
+  solverActualSeen=new Map(); solverPlan=[]; solverPlanIndex=0; solverPlanResult=null;
+  setStatus(`Searching up to ${SEARCH_NODE_LIMIT.toLocaleString()} full-game scenarios before playing…`);
+  const found=await searchBestPlan();
+  solverPlanResult=found.result; solverPlan=found.path; solverPlanIndex=0;
+  if(!solverPlan.length){ solverRunning=false; setStatus('No playable plan found.'); return; }
+  setStatus(solverPlanResult.usedCompleteSolution?`Playing best complete solution found: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:'No complete solution found in limit; playing best partial plan found.');
   solverLoop();
 }
 function pauseSolver(){ solverRunning=false; }
@@ -565,8 +703,8 @@ document.getElementById('undo-button').addEventListener('click',undo);
 document.getElementById('download-button').addEventListener('click',downloadLog);
 document.getElementById('start-solver-button').addEventListener('click',startSolver);
 document.getElementById('pause-solver-button').addEventListener('click',pauseSolver);
-document.getElementById('forward-step-button').addEventListener('click',async()=>{pauseSolver();await executeSolverStep(true);});
-document.getElementById('backward-step-button').addEventListener('click',()=>{pauseSolver();undo();});
+document.getElementById('forward-step-button').addEventListener('click',async()=>{pauseSolver(); if(solverPlanIndex<solverPlan.length) await executePlannedAction(true); else await executeSolverStep(true);});
+document.getElementById('backward-step-button').addEventListener('click',()=>{pauseSolver();undo(); solverPlan=[]; solverPlanIndex=0; solverPlanResult=null; updatePlanPanel(null);});
 </script>
 </body>
 </html>
