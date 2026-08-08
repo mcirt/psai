@@ -25,6 +25,7 @@ h1 { text-align:center; margin:0 0 4px; }
 .tile.selected,.holdtile.selected { outline:3px solid #ffd400; outline-offset:-2px; }
 .tile.valid-target,.holdtile.valid-target { outline:3px solid #2eaf55; outline-offset:-2px; }
 .tile.invalid-target,.holdtile.invalid-target { outline:3px solid #d34b4b; outline-offset:-2px; }
+.tile.solver-play,.holdtile.solver-play { outline:3px solid #2eaf55; outline-offset:-2px; box-shadow:0 0 0 2px rgba(46,175,85,.18),2px 2px 5px rgba(0,0,0,.3); }
 .inventory { display:flex; justify-content:center; margin:20px auto 0; position:relative; width:max-content; }
 #tiley,#tilez { margin-left:-15px; }
 .controls { display:flex; justify-content:center; align-items:flex-start; gap:24px; margin-top:18px; }
@@ -44,12 +45,13 @@ h1 { text-align:center; margin:0 0 4px; }
 .game-over { color:#238636; font-weight:700; }
 .solver-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:14px auto 0}.solver-controls button{padding:10px 14px;border:0;border-radius:7px;font-weight:700;cursor:pointer}.solver-note{text-align:center;color:#666;font-size:13px;margin-top:8px}
 .thought-panel{max-width:760px;margin:14px auto 0;border:1px solid #bbb;border-radius:8px;padding:10px 12px;background:#fafafa}.thought-panel h2{font-size:18px;margin:0 0 6px}.thought-summary{font-size:13px;color:#555;margin-bottom:8px}.candidate-table{width:100%;border-collapse:collapse;font-size:13px}.candidate-table th,.candidate-table td{border-top:1px solid #ddd;padding:6px 5px;text-align:left;vertical-align:top}.candidate-table th:nth-child(2),.candidate-table td:nth-child(2){text-align:right;white-space:nowrap}.candidate-table tr.chosen{font-weight:700;background:#eef8ee}.strategy-metric{display:inline-block;margin-right:12px}
+.search-stats{max-width:760px;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.search-stat{border:1px solid #ccc;border-radius:8px;padding:8px;text-align:center;background:#fff}.search-stat strong{display:block;font-size:18px}.search-label{font-size:11px;color:#666}.optimality{max-width:760px;margin:8px auto 0;text-align:center;font-size:12px;color:#666}@media(max-width:620px){.search-stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} }
 </style>
 </head>
 <body>
 <h1>Pyramid Solitaire Solver</h1>
-<div class="version">Pyramid Solitaire v1.1.0</div>
+<div class="version">Pyramid Solitaire v1.2.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -72,7 +74,14 @@ h1 { text-align:center; margin:0 0 4px; }
   <button id="pause-solver-button">Pause Solver</button>
   <button id="forward-step-button">Forward Step</button>
 </div>
-<div class="solver-note">v1.1 evaluates every legal move with a short lookahead. It can use Hold strategically, but it is not yet an exhaustive proof solver.</div>
+<div class="solver-note">v1.2 searches up to 25,000 simulated states per decision, compares legal alternatives, skips repeated/worse states, and can use Hold strategically. It reports the best move found within its search limits; optimality is not yet proven.</div>
+<div class="search-stats">
+  <div class="search-stat"><strong id="decisionStates">0</strong><span class="search-label">states this decision</span></div>
+  <div class="search-stat"><strong id="totalStates">0</strong><span class="search-label">states this solver run</span></div>
+  <div class="search-stat"><strong id="duplicateSkips">0</strong><span class="search-label">duplicate/worse states skipped</span></div>
+  <div class="search-stat"><strong id="deadBranches">0</strong><span class="search-label">dead branches found</span></div>
+</div>
+<div id="optimalityStatus" class="optimality">BEST FOUND mode — not an optimality proof.</div>
 <div id="status" class="status">Use Start Solver, or step through one legal move at a time.</div>
 <div class="thought-panel">
   <h2>Solver Decision Explorer</h2>
@@ -88,7 +97,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.1.0';
+const VERSION='Pyramid Solitaire v1.2.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -172,7 +181,9 @@ function describe(ref){
 }
 function commitLog(type,summary,details={}){
   state.moveNumber++;
-  const entry={move:state.moveNumber,type,summary,score:state.score,streak:state.streak,timestamp:new Date().toISOString(),details};
+  const enriched={...details};
+  if(pendingSolverMeta && type!=='COMPLETE') enriched.solverDecision=JSON.parse(JSON.stringify(pendingSolverMeta));
+  const entry={move:state.moveNumber,type,summary,score:state.score,streak:state.streak,timestamp:new Date().toISOString(),details:enriched};
   state.logs.push(entry); renderLog();
 }
 function clearKing(ref){
@@ -242,6 +253,7 @@ function renderScore(){ document.getElementById('score').textContent=`Score: ${s
 function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
 function renderSelection(){ clearHighlights(); if(!selected) return; const el=elementForRef(selected); if(el) el.classList.add('selected'); }
 function clearHighlights(){ document.querySelectorAll('.selected,.valid-target,.invalid-target').forEach(el=>el.classList.remove('selected','valid-target','invalid-target')); }
+function clearSolverHighlights(){ document.querySelectorAll('.solver-play').forEach(el=>el.classList.remove('solver-play')); }
 function elementForRef(ref){ if(ref.zone==='hold') return document.getElementById('tileh'); if(ref.zone==='inventory') return Number(ref.cardId)===currentZId()?document.getElementById('tilez'):null; return document.getElementById(`tile${ref.cardId}`); }
 function setStatus(text,complete=false){ const el=document.getElementById('status'); el.textContent=text; el.classList.toggle('game-over',complete); }
 function flashPoints(text,negative=false){ const el=document.getElementById('flash-points'); el.textContent=text; el.style.color=negative?'#b42318':'#238636'; clearTimeout(flashPoints.timer); flashPoints.timer=setTimeout(()=>el.textContent='',900); }
@@ -282,15 +294,19 @@ function highlightDropTarget(x,y,source){
   const valid=(target.zone==='hold'&&!state.hold)|| (isPlayable(target)&&isPair(source,target)); el.classList.add(valid?'valid-target':'invalid-target');
 }
 function downloadLog(){
-  const payload={version:VERSION,finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_game_log.json'; a.click(); URL.revokeObjectURL(a.href);
+  const payload={version:VERSION,searchConfig:{depth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,beamWidth:SEARCH_BEAM_WIDTH,maxResets:MAX_SOLVER_RESETS},solverSessionStats,finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_solver_log.json'; a.click(); URL.revokeObjectURL(a.href);
 }
 
 
-let solverTimer=null;
-const SEARCH_DEPTH=4;
-const SEARCH_NODE_LIMIT=5000;
-const SEARCH_BEAM_WIDTH=14;
+const SEARCH_DEPTH=6;
+const SEARCH_NODE_LIMIT=25000;
+const SEARCH_BEAM_WIDTH=18;
 const MAX_SOLVER_RESETS=5;
+const SOLVER_PREVIEW_MS=520;
+let solverRunning=false;
+let solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
+let solverActualSeen=new Map();
+let pendingSolverMeta=null;
 
 function simClone(s){ return JSON.parse(JSON.stringify(s)); }
 function simCurrentInventoryIds(s){ return [...s.inPlay].sort((a,b)=>b-a).slice(0,3); }
@@ -368,10 +384,15 @@ function evaluateState(s){
   const cleared=clearedPyramidCount(s), exposed=exposedPyramidCount(s), scoring=immediateScoringCount(s);
   return s.score*10 + cleared*130 + exposed*28 + scoring*65 + s.streak*35 + holdQuality(s) - (s.resetsUsed||0)*80;
 }
-function stateKey(s,depth){
+function structuralStateKey(s,includeDepth='',includeResets=true){
   const pyramid=[]; for(let i=1;i<=28;i++) pyramid.push(s.tileData[i]||'-');
-  return [depth,pyramid.join(','),s.stockQueue.join('.'),[...s.inPlay].sort((a,b)=>a-b).join('.'),s.hold?.rank||'-',s.score,s.streak,s.resetsUsed||0].join('|');
+  const inventoryValues=[]; for(let i=29;i<=52;i++) inventoryValues.push(s.tileData[i]||'-');
+  const parts=[includeDepth,pyramid.join(','),inventoryValues.join(','),s.stockQueue.join('.'),[...s.inPlay].sort((a,b)=>a-b).join('.'),s.hold?.rank||'-',s.streak];
+  if(includeResets) parts.push(s.resetsUsed||0);
+  return parts.join('|');
 }
+function stateKey(s,depth){ return structuralStateKey(s,depth,true); }
+function effectiveActualKey(s){ return structuralStateKey(s,'actual',false); }
 function quickActionBias(s,action,next){
   let b=0;
   if(action.type==='MATCH') b+=120;
@@ -385,14 +406,19 @@ function quickActionBias(s,action,next){
 }
 function searchValue(s,depth,ctx){
   ctx.nodes++;
-  if(ctx.nodes>=SEARCH_NODE_LIMIT || depth<=0 || s.gameOver) return evaluateState(s);
-  const key=stateKey(s,depth); if(ctx.memo.has(key)) return ctx.memo.get(key);
+  if(ctx.nodes>=SEARCH_NODE_LIMIT){ ctx.limitReached=true; return evaluateState(s); }
+  if(depth<=0 || s.gameOver) return evaluateState(s);
+  const key=stateKey(s,depth);
+  const dominated=ctx.bestSeen.get(key);
+  if(dominated!==undefined && dominated>=s.score){ ctx.duplicates++; return evaluateState(s)-120; }
+  ctx.bestSeen.set(key,Math.max(dominated??-Infinity,s.score));
+  if(ctx.memo.has(key)) { ctx.duplicates++; return ctx.memo.get(key); }
   let actions=generateLegalActions(s);
-  if(!actions.length){ const v=evaluateState(s)-20000; ctx.memo.set(key,v); return v; }
+  if(!actions.length){ ctx.deadBranches++; const v=evaluateState(s)-20000; ctx.memo.set(key,v); return v; }
   actions=actions.map(a=>{const n=simApplyAction(s,a);return {a,n,q:evaluateState(n)+quickActionBias(s,a,n)}}).sort((x,y)=>y.q-x.q).slice(0,SEARCH_BEAM_WIDTH);
   let best=-Infinity;
   for(const item of actions){
-    if(ctx.nodes>=SEARCH_NODE_LIMIT) break;
+    if(ctx.nodes>=SEARCH_NODE_LIMIT){ ctx.limitReached=true; break; }
     const v=searchValue(item.n,depth-1,ctx);
     if(v>best) best=v;
   }
@@ -428,20 +454,26 @@ function explainCandidate(before,action,after){
 }
 function evaluateDecision(){
   const actions=generateLegalActions(state);
-  if(!actions.length) return {action:null,candidates:[],nodes:0};
-  const ctx={nodes:0,memo:new Map()};
+  if(!actions.length) return {action:null,candidates:[],nodes:0,duplicates:0,deadBranches:0,limitReached:false};
+  const ctx={nodes:0,memo:new Map(),bestSeen:new Map(),duplicates:0,deadBranches:0,limitReached:false};
   const candidates=actions.map(action=>{
     const next=simApplyAction(state,action);
     const rating=searchValue(next,SEARCH_DEPTH-1,ctx)+quickActionBias(state,action,next);
     return {action,rating,next,label:actionLabel(state,action),reason:explainCandidate(state,action,next)};
   }).sort((a,b)=>b.rating-a.rating);
-  return {action:candidates[0].action,candidates,nodes:ctx.nodes};
+  return {action:candidates[0].action,candidates,nodes:ctx.nodes,duplicates:ctx.duplicates,deadBranches:ctx.deadBranches,limitReached:ctx.limitReached};
 }
 function renderDecision(decision){
   const summary=document.getElementById('thoughtSummary'), body=document.getElementById('candidateBody');
   body.innerHTML='';
+  document.getElementById('decisionStates').textContent=(decision?.nodes||0).toLocaleString();
+  document.getElementById('totalStates').textContent=solverSessionStats.totalNodes.toLocaleString();
+  document.getElementById('duplicateSkips').textContent=solverSessionStats.duplicates.toLocaleString();
+  document.getElementById('deadBranches').textContent=solverSessionStats.deadBranches.toLocaleString();
+  const opt=document.getElementById('optimalityStatus');
+  opt.textContent=decision?.limitReached ? `BEST FOUND — search hit the ${SEARCH_NODE_LIMIT.toLocaleString()}-state limit; optimality not proven.` : `BEST FOUND within ${SEARCH_DEPTH}-ply lookahead; optimality not proven.`;
   if(!decision||!decision.candidates.length){ summary.textContent='No legal move found.'; body.innerHTML='<tr><td colspan="3">No candidates.</td></tr>'; return; }
-  summary.innerHTML=`<span class="strategy-metric"><strong>Lookahead:</strong> ${SEARCH_DEPTH} plies</span><span class="strategy-metric"><strong>States examined:</strong> ${decision.nodes}</span><span class="strategy-metric"><strong>Choice:</strong> ${decision.candidates[0].label}</span>`;
+  summary.innerHTML=`<span class="strategy-metric"><strong>Lookahead:</strong> ${SEARCH_DEPTH} plies</span><span class="strategy-metric"><strong>States examined:</strong> ${decision.nodes.toLocaleString()}</span><span class="strategy-metric"><strong>Choice:</strong> ${decision.candidates[0].label}</span>`;
   decision.candidates.slice(0,10).forEach((c,i)=>{
     const tr=document.createElement('tr'); if(i===0) tr.className='chosen';
     const td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td');
@@ -449,23 +481,83 @@ function renderDecision(decision){
     tr.append(td1,td2,td3); body.appendChild(tr);
   });
 }
-function executeSolverStep(){
-  const decision=evaluateDecision(); renderDecision(decision);
+function refsForSolverAction(action){
+  if(!action) return [];
+  if(action.type==='KING'||action.type==='HOLD') return [action.a];
+  if(action.type==='MATCH') return [action.a,action.b];
+  return [];
+}
+function previewSolverAction(action){
+  clearSolverHighlights();
+  const refs=refsForSolverAction(action);
+  refs.forEach(ref=>{ const el=elementForRef(ref); if(el) el.classList.add('solver-play'); });
+  if(action?.type==='HOLD'){ document.getElementById('tileh').classList.add('solver-play'); }
+  return new Promise(resolve=>setTimeout(()=>{ clearSolverHighlights(); resolve(); },refs.length||action?.type==='HOLD'?SOLVER_PREVIEW_MS:180));
+}
+function updateSolverSession(decision){
+  solverSessionStats.decisions++;
+  solverSessionStats.totalNodes+=decision.nodes||0;
+  solverSessionStats.duplicates+=decision.duplicates||0;
+  solverSessionStats.deadBranches+=decision.deadBranches||0;
+  if(decision.limitReached) solverSessionStats.limitHits++;
+}
+function buildSolverMeta(decision){
+  return {
+    searchDepth:SEARCH_DEPTH,
+    stateLimit:SEARCH_NODE_LIMIT,
+    statesExamined:decision.nodes||0,
+    duplicateOrWorseStatesSkipped:decision.duplicates||0,
+    deadBranches:decision.deadBranches||0,
+    searchLimitReached:!!decision.limitReached,
+    resultLabel:'BEST FOUND',
+    optimalityProven:false,
+    chosen:decision.candidates[0]?.label||null,
+    topCandidates:decision.candidates.slice(0,5).map(c=>({move:c.label,rating:Math.round(c.rating),reason:c.reason}))
+  };
+}
+async function executeSolverStep(animated=true){
+  const effective=effectiveActualKey(state);
+  const previousBest=solverActualSeen.get(effective);
+  if(previousBest!==undefined && previousBest>=state.score){
+    pauseSolver();
+    setStatus('Solver stopped: it reached a repeated game state without improving the score.');
+    document.getElementById('optimalityStatus').textContent='Stopped repeated non-improving cycle. A different earlier branch is needed.';
+    return false;
+  }
+  solverActualSeen.set(effective,state.score);
+  setStatus(`Searching up to ${SEARCH_NODE_LIMIT.toLocaleString()} simulated states…`);
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const decision=evaluateDecision();
+  updateSolverSession(decision); renderDecision(decision);
   const action=decision.action;
   if(!action){ pauseSolver(); setStatus('No legal strategic move remains.'); return false; }
+  pendingSolverMeta=buildSolverMeta(decision);
+  if(animated) await previewSolverAction(action);
   if(action.type==='KING') clearKing(action.a);
   else if(action.type==='MATCH') matchRefs(action.a,action.b);
   else if(action.type==='HOLD') moveToHold(action.a);
   else if(action.type==='DRAW') draw();
   else if(action.type==='RESET') resetStock();
+  pendingSolverMeta=null;
   return true;
 }
-function startSolver(){
-  if(solverTimer||state.gameOver) return;
-  setStatus('Strategic solver running…');
-  solverTimer=setInterval(()=>{ if(!executeSolverStep()||state.gameOver) pauseSolver(); },850);
+async function solverLoop(){
+  while(solverRunning && !state.gameOver){
+    const ok=await executeSolverStep(true);
+    if(!ok||!solverRunning||state.gameOver) break;
+    await new Promise(r=>setTimeout(r,260));
+  }
+  solverRunning=false;
 }
-function pauseSolver(){ if(solverTimer){ clearInterval(solverTimer); solverTimer=null; } }
+function startSolver(){
+  if(solverRunning||state.gameOver) return;
+  solverRunning=true;
+  solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
+  solverActualSeen=new Map();
+  setStatus('Strategic solver running…');
+  solverLoop();
+}
+function pauseSolver(){ solverRunning=false; }
 
 makePyramid(); loadInitialState();
 document.getElementById('draw-button').addEventListener('click',draw);
@@ -473,7 +565,7 @@ document.getElementById('undo-button').addEventListener('click',undo);
 document.getElementById('download-button').addEventListener('click',downloadLog);
 document.getElementById('start-solver-button').addEventListener('click',startSolver);
 document.getElementById('pause-solver-button').addEventListener('click',pauseSolver);
-document.getElementById('forward-step-button').addEventListener('click',()=>{pauseSolver();executeSolverStep();});
+document.getElementById('forward-step-button').addEventListener('click',async()=>{pauseSolver();await executeSolverStep(true);});
 document.getElementById('backward-step-button').addEventListener('click',()=>{pauseSolver();undo();});
 </script>
 </body>
