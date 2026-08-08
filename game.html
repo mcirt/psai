@@ -47,7 +47,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.1.0</div>
+<div class="version">Pyramid Solitaire v1.4.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -71,7 +71,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.1.0';
+const VERSION='Pyramid Solitaire v1.4.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -96,8 +96,11 @@ function applyCardFace(el,rank){
     : `linear-gradient(90deg, ${base} 0 50%, ${color} 50% 100%)`;
 }
 const BLOCKERS={1:[2,3],2:[4,5],3:[5,6],4:[7,8],5:[8,9],6:[9,10],7:[11,12],8:[12,13],9:[13,14],10:[14,15],11:[16,17],12:[17,18],13:[18,19],14:[19,20],15:[20,21],16:[22,23],17:[23,24],18:[24,25],19:[25,26],20:[26,27],21:[27,28]};
+const SOLVE_BONUS=500;
+const TIME_BONUS=1260;
+const PERFECT_SCORE=8260;
 
-let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false };
+let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, completionApplied:false, solveBonus:0, timeBonus:0 };
 let history=[];
 let selected=null;
 let pointerSession=null;
@@ -158,6 +161,14 @@ function commitLog(type,summary,details={}){
   const entry={move:state.moveNumber,type,summary,score:state.score,streak:state.streak,timestamp:new Date().toISOString(),details};
   state.logs.push(entry); renderLog();
 }
+function inventoryUsedCount(s=state){ let n=0; for(let i=29;i<=52;i++) if(s.tileData[i]===null)n++; return n; }
+function applyCompletionBonuses(reason='Puzzle complete'){
+  if(state.completionApplied) return;
+  state.completionApplied=true; state.solveBonus=SOLVE_BONUS; state.timeBonus=TIME_BONUS;
+  state.score+=SOLVE_BONUS+TIME_BONUS;
+  flashPoints(`+${(SOLVE_BONUS+TIME_BONUS).toLocaleString()} bonuses`);
+  commitLog('COMPLETE',`${reason}. +${SOLVE_BONUS} completion bonus +${TIME_BONUS} time bonus. Final score: ${state.score}.`,{solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,inventoryUsed:inventoryUsedCount(state),perfectScore:state.score===PERFECT_SCORE});
+}
 function clearKing(ref){
   if(!isPlayable(ref)||rankOf(ref)!=='K'){ setStatus('That King is not currently playable.'); return false; }
   saveSnapshot(); const label=describe(ref); removeRef(ref); const pts=awardScoringAction(); commitLog('KING',`Removed ${label}; +${pts} points.`); finishAction(ref); return true;
@@ -172,7 +183,7 @@ function moveToHold(ref){
   if(!isPlayable(ref)){ setStatus('Only a playable card can be moved to Hold.'); return false; }
   saveSnapshot(); const rank=rankOf(ref), source=describe(ref), sourceId=ref.cardId; removeRef(ref); state.hold={rank,sourceId,sourceZone:ref.zone};
   commitLog('HOLD',`Moved ${source} to Hold.`,{rank});
-  if(Number(sourceId)===1){ state.gameOver=true; commitLog('COMPLETE','Tile 1 moved to Hold. Game complete.'); }
+  if(Number(sourceId)===1){ state.gameOver=true; applyCompletionBonuses('Tile 1 moved to Hold. Game complete'); }
   finishAction(ref); return true;
 }
 function draw(){
@@ -188,7 +199,7 @@ function resetStock(){
 }
 function finishAction(...refs){
   selected=null; clearHighlights();
-  if(refs.some(r=>r&&Number(r.cardId)===1)){ state.gameOver=true; commitLog('COMPLETE','Tile 1 cleared. Game complete.'); }
+  if(refs.some(r=>r&&Number(r.cardId)===1)){ state.gameOver=true; applyCompletionBonuses('Tile 1 cleared. Game complete'); }
   renderAll();
   if(state.gameOver) setStatus('Game complete!',true); else setStatus('Move completed.');
 }
@@ -221,7 +232,7 @@ function renderInventory(){
 function renderHold(){
   const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible'; if(rank) applyCardFace(el,rank); else el.style.background='transparent';
 }
-function renderScore(){ document.getElementById('score').textContent=`Score: ${state.score}`; }
+function renderScore(){ const suffix=state.completionApplied?` (includes +${state.solveBonus} solve +${state.timeBonus} time)`:''; document.getElementById('score').textContent=`Score: ${state.score}${suffix}`; }
 function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
 function renderSelection(){ clearHighlights(); if(!selected) return; const el=elementForRef(selected); if(el) el.classList.add('selected'); }
 function clearHighlights(){ document.querySelectorAll('.selected,.valid-target,.invalid-target').forEach(el=>el.classList.remove('selected','valid-target','invalid-target')); }

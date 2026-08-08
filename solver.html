@@ -30,7 +30,9 @@ h1 { text-align:center; margin:0 0 4px; }
 #tiley,#tilez { margin-left:-15px; }
 .controls { display:flex; justify-content:center; align-items:flex-start; gap:24px; margin-top:18px; }
 .controls button,.download-row button { padding:10px 16px; border-radius:7px; border:0; font-weight:700; cursor:pointer; }
-#draw-button { background:#1769aa; color:#fff; }
+#draw-button { background:#1769aa; color:#fff; transition:background .12s,transform .12s,box-shadow .12s; }
+#draw-button.solver-draw-flash { background:#ffd400; color:#111; transform:scale(1.08); box-shadow:0 0 0 4px rgba(255,212,0,.28); }
+.draw-control{display:flex;flex-direction:column;align-items:center;gap:3px}.draw-counter{height:20px;font-weight:800;font-size:15px;line-height:20px;color:#111;visibility:hidden}.draw-counter.visible{visibility:visible}
 #undo-button { background:#555; color:#fff; }
 #tileh { background:transparent; border:2px dashed #777; box-shadow:none; }
 #tileh.occupied { background:#f5f2d8; border:1px solid rgba(0,0,0,.08); box-shadow:2px 2px 5px rgba(0,0,0,.3); }
@@ -51,7 +53,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire Solver</h1>
-<div class="version">Pyramid Solitaire v1.3.0</div>
+<div class="version">Pyramid Solitaire v1.4.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -61,7 +63,7 @@ h1 { text-align:center; margin:0 0 4px; }
   <div class="tile hidden-card" id="tilez" data-zone="inventory"><span class="rank"></span></div>
 </div>
 <div class="controls">
-  <button id="draw-button">Draw</button>
+  <div class="draw-control"><div id="draw-counter" class="draw-counter" aria-live="polite">1/1</div><button id="draw-button">Draw</button></div>
   <button id="undo-button">Undo</button>
   <div class="holdtile" id="tileh" data-zone="hold"><span class="rank"></span><div class="holdtext">Hold</div></div>
 </div>
@@ -74,7 +76,7 @@ h1 { text-align:center; margin:0 0 4px; }
   <button id="pause-solver-button">Pause Solver</button>
   <button id="forward-step-button">Forward Step</button>
 </div>
-<div class="solver-note">v1.3 Start Solver searches for a complete high-scoring plan before playback. It can examine up to 25,000 simulated states across the plan search. Forward Step still uses an 8-ply tactical search when no saved plan is available.</div>
+<div class="solver-note">v1.4 searches complete and perfect-score routes first, including the 52→29 inventory setup family. It can examine up to 25,000 simulated states. Completed games receive the 500 solve bonus plus the 1260 time bonus. Draw playback shows a counter above the Draw button.</div>
 <div class="search-stats">
   <div class="search-stat"><strong id="decisionStates">0</strong><span class="search-label">states this decision</span></div>
   <div class="search-stat"><strong id="totalStates">0</strong><span class="search-label">states this solver run</span></div>
@@ -89,6 +91,10 @@ h1 { text-align:center; margin:0 0 4px; }
     <div class="plan-item"><strong id="solutionsFound">0</strong><span>complete solutions found</span></div>
     <div class="plan-item"><strong id="bestPlanScore">—</strong><span>best completed score</span></div>
     <div class="plan-item"><strong id="bestImprovements">0</strong><span>best-score improvements</span></div>
+    <div class="plan-item"><strong id="bestPartialScore">—</strong><span>best partial score</span></div>
+    <div class="plan-item"><strong id="inventoryUsed">0/24</strong><span>inventory used now</span></div>
+    <div class="plan-item"><strong id="perfectCandidates">0</strong><span>8260 candidates found</span></div>
+    <div class="plan-item"><strong id="perfectPossible">YES</strong><span>8260 route still possible now</span></div>
   </div>
   <div id="planStatus" class="plan-status">No full-plan search run yet.</div>
   <div id="planProgress" class="plan-progress"></div>
@@ -108,7 +114,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.3.0';
+const VERSION='Pyramid Solitaire v1.4.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -133,8 +139,11 @@ function applyCardFace(el,rank){
     : `linear-gradient(90deg, ${base} 0 50%, ${color} 50% 100%)`;
 }
 const BLOCKERS={1:[2,3],2:[4,5],3:[5,6],4:[7,8],5:[8,9],6:[9,10],7:[11,12],8:[12,13],9:[13,14],10:[14,15],11:[16,17],12:[17,18],13:[18,19],14:[19,20],15:[20,21],16:[22,23],17:[23,24],18:[24,25],19:[25,26],20:[26,27],21:[27,28]};
+const SOLVE_BONUS=500;
+const TIME_BONUS=1260;
+const PERFECT_SCORE=8260;
 
-let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, resetsUsed:0 };
+let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, resetsUsed:0, completionApplied:false, solveBonus:0, timeBonus:0 };
 let history=[];
 let selected=null;
 let pointerSession=null;
@@ -197,6 +206,17 @@ function commitLog(type,summary,details={}){
   const entry={move:state.moveNumber,type,summary,score:state.score,streak:state.streak,timestamp:new Date().toISOString(),details:enriched};
   state.logs.push(entry); renderLog();
 }
+function inventoryUsedCount(s=state){ let n=0; for(let i=29;i<=52;i++) if(s.tileData[i]===null)n++; return n; }
+function remainingPyramidCount(s=state){ let n=0; for(let i=1;i<=28;i++) if(s.tileData[i]!==null)n++; return n; }
+function streakScore(n){ if(n<=0)return 0; if(n===1)return 50; if(n===2)return 150; if(n===3)return 300; if(n===4)return 500; return 500+(n-4)*250; }
+function perfectRoutePossible(s=state){ if(s.gameOver)return s.score===PERFECT_SCORE&&inventoryUsedCount(s)===24; return s.score===streakScore(s.streak); }
+function applyCompletionBonuses(reason='Puzzle complete'){
+  if(state.completionApplied) return;
+  state.completionApplied=true; state.solveBonus=SOLVE_BONUS; state.timeBonus=TIME_BONUS;
+  state.score+=SOLVE_BONUS+TIME_BONUS;
+  flashPoints(`+${(SOLVE_BONUS+TIME_BONUS).toLocaleString()} bonuses`);
+  commitLog('COMPLETE',`${reason}. +${SOLVE_BONUS} completion bonus +${TIME_BONUS} time bonus. Final score: ${state.score}.`,{solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,inventoryUsed:inventoryUsedCount(state),perfectScore:state.score===PERFECT_SCORE});
+}
 function clearKing(ref){
   if(!isPlayable(ref)||rankOf(ref)!=='K'){ setStatus('That King is not currently playable.'); return false; }
   saveSnapshot(); const label=describe(ref); removeRef(ref); const pts=awardScoringAction(); commitLog('KING',`Removed ${label}; +${pts} points.`); finishAction(ref); return true;
@@ -211,7 +231,7 @@ function moveToHold(ref){
   if(!isPlayable(ref)){ setStatus('Only a playable card can be moved to Hold.'); return false; }
   saveSnapshot(); const rank=rankOf(ref), source=describe(ref), sourceId=ref.cardId; removeRef(ref); state.hold={rank,sourceId,sourceZone:ref.zone};
   commitLog('HOLD',`Moved ${source} to Hold.`,{rank});
-  if(Number(sourceId)===1){ state.gameOver=true; commitLog('COMPLETE','Tile 1 moved to Hold. Game complete.'); }
+  if(Number(sourceId)===1){ state.gameOver=true; applyCompletionBonuses('Tile 1 moved to Hold. Game complete'); }
   finishAction(ref); return true;
 }
 function draw(){
@@ -227,7 +247,7 @@ function resetStock(){
 }
 function finishAction(...refs){
   selected=null; clearHighlights();
-  if(refs.some(r=>r&&Number(r.cardId)===1)){ state.gameOver=true; commitLog('COMPLETE','Tile 1 cleared. Game complete.'); }
+  if(refs.some(r=>r&&Number(r.cardId)===1)){ state.gameOver=true; applyCompletionBonuses('Tile 1 cleared. Game complete'); }
   renderAll();
   if(state.gameOver) setStatus('Game complete!',true); else setStatus('Move completed.');
 }
@@ -252,6 +272,8 @@ function renderAll(){
   }
   renderInventory(); renderHold(); renderScore(); renderLog(); renderSelection();
   document.getElementById('draw-button').textContent=state.stockQueue.length?'Draw':'Reset';
+  const invMetric=document.getElementById('inventoryUsed'); if(invMetric)invMetric.textContent=`${inventoryUsedCount(state)}/24`;
+  const perfectMetric=document.getElementById('perfectPossible'); if(perfectMetric)perfectMetric.textContent=perfectRoutePossible(state)?'YES':'NO';
 }
 function renderInventory(){
   const ids=currentInventoryIds(); const slots=[document.getElementById('tilez'),document.getElementById('tiley'),document.getElementById('tilex')];
@@ -260,7 +282,7 @@ function renderInventory(){
 function renderHold(){
   const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible'; if(rank) applyCardFace(el,rank); else el.style.background='transparent';
 }
-function renderScore(){ document.getElementById('score').textContent=`Score: ${state.score}`; }
+function renderScore(){ const suffix=state.completionApplied?` (includes +${state.solveBonus} solve +${state.timeBonus} time)`:''; document.getElementById('score').textContent=`Score: ${state.score}${suffix}`; }
 function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
 function renderSelection(){ clearHighlights(); if(!selected) return; const el=elementForRef(selected); if(el) el.classList.add('selected'); }
 function clearHighlights(){ document.querySelectorAll('.selected,.valid-target,.invalid-target').forEach(el=>el.classList.remove('selected','valid-target','invalid-target')); }
@@ -305,7 +327,7 @@ function highlightDropTarget(x,y,source){
   const valid=(target.zone==='hold'&&!state.hold)|| (isPlayable(target)&&isPair(source,target)); el.classList.add(valid?'valid-target':'invalid-target');
 }
 function downloadLog(){
-  const payload={version:VERSION,searchConfig:{tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_solver_log.json'; a.click(); URL.revokeObjectURL(a.href);
+  const payload={version:VERSION,searchConfig:{tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_solver_log.json'; a.click(); URL.revokeObjectURL(a.href);
 }
 
 
@@ -346,6 +368,7 @@ function simRemove(s,ref){
   if(id>=29){ const i=s.inPlay.indexOf(id); if(i>=0)s.inPlay.splice(i,1); const q=s.stockQueue.indexOf(id); if(q>=0)s.stockQueue.splice(q,1); }
 }
 function simAward(s){ s.streak++; s.score+=Math.min(s.streak,5)*50; }
+function simComplete(s){ if(s.completionApplied)return; s.gameOver=true; s.completionApplied=true; s.solveBonus=SOLVE_BONUS; s.timeBonus=TIME_BONUS; s.score+=SOLVE_BONUS+TIME_BONUS; }
 function simPlayableRefs(s){
   const refs=[];
   for(let i=1;i<=28;i++) if(s.tileData[i]&&simPyramidPlayable(s,i)) refs.push({zone:'pyramid',cardId:i});
@@ -361,7 +384,6 @@ function generateLegalActions(s){
   if(!s.hold){
     for(const r of refs){
       if(r.zone==='hold') continue;
-      if(simRankOf(s,r)==='K') continue; // scoring a playable King is always stronger than parking it
       actions.push({type:'HOLD',a:r});
     }
   }
@@ -372,11 +394,11 @@ function generateLegalActions(s){
 function simApplyAction(s,action){
   const n=simClone(s);
   if(action.type==='KING'){
-    const id=Number(action.a.cardId); simRemove(n,action.a); simAward(n); if(id===1)n.gameOver=true;
+    const id=Number(action.a.cardId); simRemove(n,action.a); simAward(n); if(id===1)simComplete(n);
   }else if(action.type==='MATCH'){
-    const id1=Number(action.a.cardId),id2=Number(action.b.cardId); simRemove(n,action.a); simRemove(n,action.b); simAward(n); if(id1===1||id2===1)n.gameOver=true;
+    const id1=Number(action.a.cardId),id2=Number(action.b.cardId); simRemove(n,action.a); simRemove(n,action.b); simAward(n); if(id1===1||id2===1)simComplete(n);
   }else if(action.type==='HOLD'){
-    const rank=simRankOf(n,action.a),id=action.a.cardId; simRemove(n,action.a); n.hold={rank,sourceId:id,sourceZone:action.a.zone}; if(Number(id)===1)n.gameOver=true;
+    const rank=simRankOf(n,action.a),id=action.a.cardId; simRemove(n,action.a); n.hold={rank,sourceId:id,sourceZone:action.a.zone}; if(Number(id)===1)simComplete(n);
   }else if(action.type==='DRAW'){
     const drawn=n.stockQueue.splice(0,Math.min(3,n.stockQueue.length)); n.inPlay.push(...drawn); n.streak=0;
   }else if(action.type==='RESET'){
@@ -397,9 +419,12 @@ function holdQuality(s){
   return refs.some(r=>simPair(s,h,r))?35:-10;
 }
 function evaluateState(s){
-  if(s.gameOver) return 1000000 + s.score*100;
-  const cleared=clearedPyramidCount(s), exposed=exposedPyramidCount(s), scoring=immediateScoringCount(s);
-  return s.score*10 + cleared*130 + exposed*28 + scoring*65 + s.streak*35 + holdQuality(s) - (s.resetsUsed||0)*80;
+  const invUsed=inventoryUsedCount(s), cleared=clearedPyramidCount(s), exposed=exposedPyramidCount(s), scoring=immediateScoringCount(s);
+  if(s.gameOver){
+    const perfect=(s.score===PERFECT_SCORE && invUsed===24)?5000000:0;
+    return 3000000 + perfect + s.score*1000 + invUsed*5000 - (s.resetsUsed||0)*500;
+  }
+  return s.score*12 + cleared*900 + invUsed*260 + exposed*55 + scoring*100 + s.streak*75 + holdQuality(s) - (s.resetsUsed||0)*140;
 }
 function structuralStateKey(s,includeDepth='',includeResets=true){
   const pyramid=[]; for(let i=1;i<=28;i++) pyramid.push(s.tileData[i]||'-');
@@ -418,7 +443,9 @@ function quickActionBias(s,action,next){
   if(action.type==='DRAW') b-=80 + s.streak*35;
   if(action.type==='RESET') b-=180;
   b+=(clearedPyramidCount(next)-clearedPyramidCount(s))*100;
-  b+=(exposedPyramidCount(next)-exposedPyramidCount(s))*35;
+  b+=(exposedPyramidCount(next)-exposedPyramidCount(s))*70;
+  b+=(inventoryUsedCount(next)-inventoryUsedCount(s))*90;
+  if(next.gameOver)b+=1000000;
   return b;
 }
 function searchValue(s,depth,ctx){
@@ -535,33 +562,61 @@ function buildSolverMeta(decision){
 
 function betterCompleted(a,b){
   if(!b) return true;
+  const ap=(a.state.score===PERFECT_SCORE&&inventoryUsedCount(a.state)===24), bp=(b.state.score===PERFECT_SCORE&&inventoryUsedCount(b.state)===24);
+  if(ap!==bp) return ap;
   if(a.state.score!==b.state.score) return a.state.score>b.state.score;
+  const ai=inventoryUsedCount(a.state),bi=inventoryUsedCount(b.state); if(ai!==bi)return ai>bi;
   if((a.state.resetsUsed||0)!==(b.state.resetsUsed||0)) return (a.state.resetsUsed||0)<(b.state.resetsUsed||0);
   return a.path.length<b.path.length;
 }
 function planRank(node){
-  const s=node.state;
-  return evaluateState(s) + immediateScoringCount(s)*90 + s.streak*45 - node.path.length*2;
+  const s=node.state, cleared=clearedPyramidCount(s), inv=inventoryUsedCount(s);
+  if(s.gameOver)return evaluateState(s);
+  return cleared*42000 + inv*12000 + s.score*30 + s.streak*160 + exposedPyramidCount(s)*500 + immediateScoringCount(s)*450 - (s.resetsUsed||0)*1000 - node.path.length*3;
 }
 function updatePlanPanel(result,progressText=''){
   document.getElementById('planStates').textContent=(result?.statesExamined||0).toLocaleString();
   document.getElementById('solutionsFound').textContent=(result?.solutionsFound||0).toLocaleString();
   document.getElementById('bestPlanScore').textContent=result?.bestCompletedScore!=null?result.bestCompletedScore.toLocaleString():'—';
   document.getElementById('bestImprovements').textContent=(result?.bestScoreImprovements||0).toLocaleString();
+  document.getElementById('bestPartialScore').textContent=result?.bestPartialScore!=null?result.bestPartialScore.toLocaleString():'—';
+  document.getElementById('inventoryUsed').textContent=`${result?.selectedInventoryUsed||0}/24`;
+  document.getElementById('perfectCandidates').textContent=(result?.perfectCandidates||0).toLocaleString();
+  document.getElementById('perfectPossible').textContent=result?.selectedPerfectPossible===false?'NO':'YES';
   const status=document.getElementById('planStatus');
   if(!result){ status.textContent='No full-plan search run yet.'; }
-  else if(result.bestCompletedScore!=null){ status.textContent=`BEST COMPLETE SOLUTION FOUND: ${result.bestCompletedScore.toLocaleString()} points in ${result.bestMoveCount} moves with ${result.bestResets} reset${result.bestResets===1?'':'s'}.`; }
-  else { status.textContent='No complete solution found within this search limit; best partial plan will be used.'; }
+  else if(result.bestCompletedScore!=null){ status.textContent=`BEST COMPLETE SOLUTION FOUND: ${result.bestCompletedScore.toLocaleString()} points in ${result.bestMoveCount} moves with ${result.bestResets} reset${result.bestResets===1?'':'s'}. ${result.bestCompletedScore===PERFECT_SCORE?'PERFECT 8260!':''}`; }
+  else { status.textContent=`BEST PARTIAL — PUZZLE NOT SOLVED. Partial score ${result.bestPartialScore?.toLocaleString()||0}.`; }
   document.getElementById('planProgress').textContent=progressText||result?.stopReason||'';
 }
 function planStateKey(s){ return structuralStateKey(s,'plan',true); }
+function makeAction(type,a=null,b=null){ const x={type}; if(a)x.a=a; if(b)x.b=b; return x; }
+function buildPerfectSetupSeeds(initial){
+  const seeds=[];
+  function addSeed(label,drawBeforeHold){
+    let st=simClone(initial), path=[];
+    if(drawBeforeHold===0){
+      for(let i=0;i<8;i++){ if(!st.stockQueue.length)return; const a=makeAction('DRAW'); st=simApplyAction(st,a); path.push(a); }
+    }else{
+      for(let i=0;i<drawBeforeHold;i++){ if(!st.stockQueue.length)return; const a=makeAction('DRAW'); st=simApplyAction(st,a); path.push(a); }
+      const z=simCurrentZId(st); if(!z||st.hold)return;
+      const h=makeAction('HOLD',{zone:'inventory',cardId:z}); st=simApplyAction(st,h); path.push(h);
+      for(let i=drawBeforeHold;i<8;i++){ if(!st.stockQueue.length)return; const a=makeAction('DRAW'); st=simApplyAction(st,a); path.push(a); }
+    }
+    seeds.push({state:st,path,seedLabel:label,rank:planRank({state:st,path})});
+  }
+  addSeed('8 draws → start at 52',0);
+  for(let d=1;d<=8;d++) addSeed(`draw ${d} → hold ${28+d*3} → draw ${8-d} more`,d);
+  return seeds;
+}
 async function searchBestPlan(){
   const initial=simClone(state);
-  const result={statesExamined:0,duplicatesSkipped:0,deadBranches:0,solutionsFound:0,bestCompletedScore:null,bestMoveCount:null,bestResets:null,bestScoreImprovements:0,limitReached:false,optimalityProven:false,stopReason:'',searchedDepth:0};
-  let frontier=[{state:initial,path:[]}];
+  const result={statesExamined:0,duplicatesSkipped:0,deadBranches:0,solutionsFound:0,perfectCandidates:0,bestCompletedScore:null,bestMoveCount:null,bestResets:null,bestScoreImprovements:0,bestPartialScore:initial.score,limitReached:false,optimalityProven:false,stopReason:'',searchedDepth:0,perfectSetupSeeds:0};
+  const perfectSeeds=buildPerfectSetupSeeds(initial); result.perfectSetupSeeds=perfectSeeds.length;
+  let frontier=[{state:initial,path:[],rank:planRank({state:initial,path:[]}),seedLabel:'general'},...perfectSeeds];
   let bestComplete=null;
   let bestPartial={state:initial,path:[],rank:planRank({state:initial,path:[]})};
-  const seen=new Map(); seen.set(planStateKey(initial),initial.score);
+  const seen=new Map(); frontier.forEach(n=>{const k=planStateKey(n.state),p=seen.get(k); if(p===undefined||n.state.score>p)seen.set(k,n.state.score);});
   updatePlanPanel(result,'Starting full-plan search…');
   for(let depth=0; depth<PLAN_MAX_DEPTH && frontier.length && result.statesExamined<SEARCH_NODE_LIMIT; depth++){
     result.searchedDepth=depth+1;
@@ -580,6 +635,7 @@ async function searchBestPlan(){
         const next=item.next;
         if(next.gameOver){
           result.solutionsFound++;
+          if(next.score===PERFECT_SCORE && inventoryUsedCount(next)===24) result.perfectCandidates++;
           const candidate={state:next,path};
           if(betterCompleted(candidate,bestComplete)){
             bestComplete=candidate;
@@ -594,6 +650,7 @@ async function searchBestPlan(){
         if(prev!==undefined && prev>=next.score){ result.duplicatesSkipped++; continue; }
         seen.set(key,next.score);
         const rank=planRank({state:next,path});
+        if(next.score>result.bestPartialScore)result.bestPartialScore=next.score;
         if(rank>bestPartial.rank) bestPartial={state:next,path,rank};
         nextNodes.push({state:next,path,rank});
       }
@@ -611,6 +668,9 @@ async function searchBestPlan(){
   result.usedCompleteSolution=!!bestComplete;
   result.selectedPathLength=chosen.path.length;
   result.selectedFinalScore=chosen.state.score;
+  result.selectedInventoryUsed=inventoryUsedCount(chosen.state);
+  result.selectedPerfectPossible=perfectRoutePossible(chosen.state);
+  result.bestPartialScore=Math.max(result.bestPartialScore,bestPartial.state.score);
   result.duplicatesSkipped=result.duplicatesSkipped;
   result.deadBranches=result.deadBranches;
   updatePlanPanel(result,result.stopReason);
@@ -624,17 +684,27 @@ function buildPlanMeta(action,index){
     planStatesExamined:solverPlanResult?.statesExamined||0,
     completeSolutionsFound:solverPlanResult?.solutionsFound||0,
     bestCompletedScore:solverPlanResult?.bestCompletedScore,
+    bestPartialScore:solverPlanResult?.bestPartialScore,
+    inventoryUsed:solverPlanResult?.selectedInventoryUsed,
+    perfectCandidates:solverPlanResult?.perfectCandidates||0,
     planMove:index+1,
     plannedMoves:solverPlan.length,
     chosen:actionLabel(state,action)
   };
 }
+function drawRunInfo(path,index){
+  if(path[index]?.type!=='DRAW')return null;
+  let start=index,end=index; while(start>0&&path[start-1]?.type==='DRAW')start--; while(end+1<path.length&&path[end+1]?.type==='DRAW')end++;
+  return {position:index-start+1,total:end-start+1};
+}
+function setDrawCounter(info){ const el=document.getElementById('draw-counter'); if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
+async function previewDraw(info){ const btn=document.getElementById('draw-button'); setDrawCounter(info||{position:1,total:1}); btn.classList.add('solver-draw-flash'); await new Promise(r=>setTimeout(r,SOLVER_PREVIEW_MS)); btn.classList.remove('solver-draw-flash'); }
 async function executePlannedAction(animated=true){
   if(solverPlanIndex>=solverPlan.length) return false;
   const action=solverPlan[solverPlanIndex];
   pendingSolverMeta=buildPlanMeta(action,solverPlanIndex);
   executingPlannedAction=true;
-  if(animated) await previewSolverAction(action);
+  if(animated){ if(action.type==='DRAW') await previewDraw(drawRunInfo(solverPlan,solverPlanIndex)); else { setDrawCounter(null); await previewSolverAction(action); } }
   if(action.type==='KING') clearKing(action.a);
   else if(action.type==='MATCH') matchRefs(action.a,action.b);
   else if(action.type==='HOLD') moveToHold(action.a);
@@ -664,7 +734,7 @@ async function executeSolverStep(animated=true){
   const action=decision.action;
   if(!action){ pauseSolver(); setStatus('No legal strategic move remains.'); return false; }
   pendingSolverMeta=buildSolverMeta(decision);
-  if(animated) await previewSolverAction(action);
+  if(animated){ if(action.type==='DRAW') await previewDraw({position:1,total:1}); else { setDrawCounter(null); await previewSolverAction(action); } }
   if(action.type==='KING') clearKing(action.a);
   else if(action.type==='MATCH') matchRefs(action.a,action.b);
   else if(action.type==='HOLD') moveToHold(action.a);
@@ -680,7 +750,7 @@ async function solverLoop(){
     await new Promise(r=>setTimeout(r,260));
   }
   solverRunning=false;
-  if(state.gameOver) document.getElementById('planProgress').textContent=`Plan completed. Final score: ${state.score.toLocaleString()}.`;
+  if(state.gameOver) document.getElementById('planProgress').textContent=`Plan completed. Final score: ${state.score.toLocaleString()} (includes +${SOLVE_BONUS} completion +${TIME_BONUS} time). Inventory used: ${inventoryUsedCount(state)}/24.`;
   else if(solverPlanIndex>=solverPlan.length) setStatus('Saved plan finished.');
 }
 async function startSolver(){
@@ -692,13 +762,13 @@ async function startSolver(){
   const found=await searchBestPlan();
   solverPlanResult=found.result; solverPlan=found.path; solverPlanIndex=0;
   if(!solverPlan.length){ solverRunning=false; setStatus('No playable plan found.'); return; }
-  setStatus(solverPlanResult.usedCompleteSolution?`Playing best complete solution found: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:'No complete solution found in limit; playing best partial plan found.');
+  setStatus(solverPlanResult.usedCompleteSolution?`Playing best complete solution found: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:`BEST PARTIAL — PUZZLE NOT SOLVED. Playing partial plan scoring ${solverPlanResult.bestPartialScore.toLocaleString()}.`);
   solverLoop();
 }
 function pauseSolver(){ solverRunning=false; }
 
 makePyramid(); loadInitialState();
-document.getElementById('draw-button').addEventListener('click',draw);
+document.getElementById('draw-button').addEventListener('click',async()=>{ if(state.stockQueue.length){ await previewDraw({position:1,total:1}); draw(); } else resetStock(); });
 document.getElementById('undo-button').addEventListener('click',undo);
 document.getElementById('download-button').addEventListener('click',downloadLog);
 document.getElementById('start-solver-button').addEventListener('click',startSolver);
