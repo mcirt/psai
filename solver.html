@@ -55,7 +55,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire Solver</h1>
-<div class="version">Pyramid Solitaire v1.5.0</div>
+<div class="version">Pyramid Solitaire v1.5.1</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -116,7 +116,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.5.0';
+const VERSION='Pyramid Solitaire v1.5.1';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -231,6 +231,7 @@ function matchRefs(a,b){
 function moveToHold(ref){
   if(state.hold){ setStatus('Hold already contains a card.'); return false; }
   if(!isPlayable(ref)){ setStatus('Only a playable card can be moved to Hold.'); return false; }
+  if(rankOf(ref)==='K'){ setStatus('Kings clear automatically and cannot be moved to Hold.'); return false; }
   saveSnapshot(); const rank=rankOf(ref), source=describe(ref), sourceId=ref.cardId; removeRef(ref); state.hold={rank,sourceId,sourceZone:ref.zone};
   commitLog('HOLD',`Moved ${source} to Hold.`,{rank});
   if(Number(sourceId)===1){ state.gameOver=true; applyCompletionBonuses('Tile 1 moved to Hold. Game complete'); }
@@ -333,7 +334,7 @@ function downloadLog(){
 }
 
 
-const SEARCH_DEPTH=32;
+const SEARCH_DEPTH=24;
 const SEARCH_NODE_LIMIT=100000;
 const SEARCH_BEAM_WIDTH=18;
 const PLAN_BEAM_WIDTH=640;
@@ -389,6 +390,7 @@ function generateLegalActions(s){
   if(!s.hold){
     for(const r of refs){
       if(r.zone==='hold') continue;
+      if(simRankOf(s,r)==='K') continue; // Kings clear automatically; never legal Hold candidates.
       actions.push({type:'HOLD',a:r});
     }
   }
@@ -403,7 +405,9 @@ function simApplyAction(s,action){
   }else if(action.type==='MATCH'){
     const id1=Number(action.a.cardId),id2=Number(action.b.cardId); simRemove(n,action.a); simRemove(n,action.b); simAward(n); if(id1===1||id2===1)simComplete(n);
   }else if(action.type==='HOLD'){
-    const rank=simRankOf(n,action.a),id=action.a.cardId; simRemove(n,action.a); n.hold={rank,sourceId:id,sourceZone:action.a.zone}; if(Number(id)===1)simComplete(n);
+    const rank=simRankOf(n,action.a),id=action.a.cardId;
+    if(rank==='K') return null; // Safety guard: an invalid simulated King-Hold must never create a search state.
+    simRemove(n,action.a); n.hold={rank,sourceId:id,sourceZone:action.a.zone}; if(Number(id)===1)simComplete(n);
   }else if(action.type==='DRAW'){
     const drawn=n.stockQueue.splice(0,Math.min(3,n.stockQueue.length)); n.inPlay.push(...drawn); n.streak=0;
   }else if(action.type==='RESET'){
@@ -605,7 +609,9 @@ function buildPerfectSetupSeeds(initial){
     }else{
       for(let i=0;i<drawBeforeHold;i++){ if(!st.stockQueue.length)return; const a=makeAction('DRAW'); st=simApplyAction(st,a); path.push(a); }
       const z=simCurrentZId(st); if(!z||st.hold)return;
-      const h=makeAction('HOLD',{zone:'inventory',cardId:z}); st=simApplyAction(st,h); path.push(h);
+      const zRef={zone:'inventory',cardId:z};
+      if(simRankOf(st,zRef)==='K') return; // This known setup is impossible: Kings cannot be held.
+      const h=makeAction('HOLD',zRef); st=simApplyAction(st,h); if(!st)return; path.push(h);
       for(let i=drawBeforeHold;i<8;i++){ if(!st.stockQueue.length)return; const a=makeAction('DRAW'); st=simApplyAction(st,a); path.push(a); }
     }
     seeds.push({state:st,path,seedLabel:label,rank:planRank({state:st,path})});

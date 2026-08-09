@@ -47,7 +47,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.4.0</div>
+<div class="version">Pyramid Solitaire v1.5.1</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -71,7 +71,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.4.0';
+const VERSION='Pyramid Solitaire v1.5.1';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -181,6 +181,7 @@ function matchRefs(a,b){
 function moveToHold(ref){
   if(state.hold){ setStatus('Hold already contains a card.'); return false; }
   if(!isPlayable(ref)){ setStatus('Only a playable card can be moved to Hold.'); return false; }
+  if(rankOf(ref)==='K'){ setStatus('Kings clear automatically and cannot be moved to Hold.'); return false; }
   saveSnapshot(); const rank=rankOf(ref), source=describe(ref), sourceId=ref.cardId; removeRef(ref); state.hold={rank,sourceId,sourceZone:ref.zone};
   commitLog('HOLD',`Moved ${source} to Hold.`,{rank});
   if(Number(sourceId)===1){ state.gameOver=true; applyCompletionBonuses('Tile 1 moved to Hold. Game complete'); }
