@@ -41,13 +41,22 @@ h1 { text-align:center; margin:0 0 4px; }
 #moveLog { margin:0; padding-left:24px; max-height:220px; overflow:auto; }
 #moveLog li { margin:4px 0; }
 .drag-ghost { position:fixed; pointer-events:none; z-index:9999; opacity:.9; transform:translate(-50%,-50%) scale(1.08); }
+.tile.drag-origin-placeholder,.holdtile.drag-origin-placeholder{background:rgba(255,255,255,.06)!important;border:2px dashed #8a8a8a!important;box-shadow:none!important;outline:none!important;color:transparent!important}
+.tile.drag-origin-placeholder .rank,.holdtile.drag-origin-placeholder .rank{visibility:hidden!important}
+.tile.king-pop,.holdtile.king-pop{animation:kingPop 620ms ease-out both;z-index:15}
+.king-burst{position:fixed;z-index:10000;width:10px;height:10px;pointer-events:none;transform:translate(-50%,-50%)}
+.king-burst::before{content:'';position:absolute;left:50%;top:50%;width:18px;height:18px;border:4px solid #ffd400;border-radius:50%;transform:translate(-50%,-50%);animation:kingRing 620ms ease-out both}
+.king-burst span{position:absolute;left:50%;top:50%;width:7px;height:7px;border-radius:50%;background:#ffb000;box-shadow:0 0 7px rgba(255,176,0,.9);transform:translate(-50%,-50%);animation:kingSpark 620ms ease-out both}
+@keyframes kingPop{0%{transform:scale(1);filter:brightness(1)}32%{transform:scale(1.22);filter:brightness(1.55)}62%{transform:scale(.9);filter:brightness(1.2)}100%{transform:scale(1);filter:brightness(1)}}
+@keyframes kingRing{0%{opacity:1;transform:translate(-50%,-50%) scale(.35)}100%{opacity:0;transform:translate(-50%,-50%) scale(4.4)}}
+@keyframes kingSpark{0%{opacity:1;transform:translate(-50%,-50%) translate(0,0) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) translate(var(--dx),var(--dy)) scale(.25)}}
 .game-over { color:#238636; font-weight:700; }
 @media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} }
 </style>
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.5.2</div>
+<div class="version">Pyramid Solitaire v1.5.4</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -71,7 +80,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.5.2';
+const VERSION='Pyramid Solitaire v1.5.4';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -169,8 +178,23 @@ function applyCompletionBonuses(reason='Puzzle complete'){
   flashPoints(`+${(SOLVE_BONUS+TIME_BONUS).toLocaleString()} bonuses`);
   commitLog('COMPLETE',`${reason}. +${SOLVE_BONUS} completion bonus +${TIME_BONUS} time bonus. Final score: ${state.score}.`,{solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,inventoryUsed:inventoryUsedCount(state),perfectScore:state.score===PERFECT_SCORE});
 }
-function clearKing(ref){
+function centerOf(el){ const r=el.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; }
+async function animateKingBurst(ref){
+  const el=elementForRef(ref); if(!el) return;
+  const at=centerOf(el), burstMs=620;
+  el.classList.add('king-pop');
+  const burst=document.createElement('div'); burst.className='king-burst'; burst.style.left=`${at.x}px`; burst.style.top=`${at.y}px`;
+  for(let i=0;i<10;i++){
+    const spark=document.createElement('span'); const angle=(Math.PI*2*i/10)-(Math.PI/2); const distance=32+(i%2)*12;
+    spark.style.setProperty('--dx',`${Math.cos(angle)*distance}px`); spark.style.setProperty('--dy',`${Math.sin(angle)*distance}px`); burst.appendChild(spark);
+  }
+  document.body.appendChild(burst); await new Promise(r=>setTimeout(r,burstMs)); burst.remove(); el.classList.remove('king-pop');
+}
+async function clearKing(ref){
   if(!isPlayable(ref)||rankOf(ref)!=='K'){ setStatus('That King is not currently playable.'); return false; }
+  setStatus(`${describe(ref)} clearing…`);
+  await animateKingBurst(ref);
+  if(!isPlayable(ref)||rankOf(ref)!=='K') return false;
   saveSnapshot(); const label=describe(ref); removeRef(ref); const pts=awardScoringAction(); commitLog('KING',`Removed ${label}; +${pts} points.`); finishAction(ref); return true;
 }
 function matchRefs(a,b){
@@ -268,19 +292,31 @@ function bindPointerEvents(){
   document.addEventListener('pointermove',e=>{
     const p=pointerSession; if(!p||p.id!==e.pointerId) return;
     const dist=Math.hypot(e.clientX-p.startX,e.clientY-p.startY);
-    if(!p.dragging&&dist>8){ p.dragging=true; p.ghost=p.sourceEl.cloneNode(true); p.ghost.className='tile drag-ghost'; document.body.appendChild(p.ghost); }
+    if(!p.dragging&&dist>8){
+      p.dragging=true;
+      p.ghost=p.sourceEl.cloneNode(true); p.ghost.className='tile drag-ghost';
+      const at=centerOf(p.sourceEl); p.ghost.style.left=`${at.x}px`; p.ghost.style.top=`${at.y}px`;
+      document.body.appendChild(p.ghost);
+      p.sourceEl.classList.add('drag-origin-placeholder');
+    }
     if(p.dragging){ p.ghost.style.left=`${e.clientX}px`; p.ghost.style.top=`${e.clientY}px`; highlightDropTarget(e.clientX,e.clientY,p.ref); e.preventDefault(); }
   },{passive:false});
   document.addEventListener('pointerup',e=>{
     const p=pointerSession; if(!p||p.id!==e.pointerId) return; pointerSession=null;
-    if(p.ghost) p.ghost.remove(); clearHighlights();
+    if(p.ghost) p.ghost.remove();
+    p.sourceEl?.classList.remove('drag-origin-placeholder');
+    clearHighlights();
     if(!p.dragging){ activate(p.ref); return; }
     const target=refAtPoint(e.clientX,e.clientY);
     if(!target||sameRef(p.ref,target)){ setStatus('Card returned to its original position.'); return; }
     if(target.zone==='hold'&&!state.hold){ moveToHold(p.ref); return; }
     matchRefs(p.ref,target);
   });
-  document.addEventListener('pointercancel',()=>{ if(pointerSession?.ghost) pointerSession.ghost.remove(); pointerSession=null; clearHighlights(); });
+  document.addEventListener('pointercancel',()=>{
+    if(pointerSession?.ghost) pointerSession.ghost.remove();
+    pointerSession?.sourceEl?.classList.remove('drag-origin-placeholder');
+    pointerSession=null; clearHighlights();
+  });
 }
 function refAtPoint(x,y){ const el=document.elementFromPoint(x,y); return refFromElement(el); }
 function highlightDropTarget(x,y,source){
