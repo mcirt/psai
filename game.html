@@ -56,7 +56,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.5.4</div>
+<div class="version">Pyramid Solitaire v1.5.5</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -80,7 +80,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.5.4';
+const VERSION='Pyramid Solitaire v1.5.5';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -324,8 +324,12 @@ function highlightDropTarget(x,y,source){
   const el=elementForRef(target); if(!el) return;
   const valid=(target.zone==='hold'&&!state.hold)|| (isPlayable(target)&&isPair(source,target)); el.classList.add(valid?'valid-target':'invalid-target');
 }
+function localTimestampForFilename(){
+  const d=new Date(), pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
 function downloadLog(){
-  const payload={version:VERSION,finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pyramid_solitaire_game_log.json'; a.click(); URL.revokeObjectURL(a.href);
+  const payload={version:VERSION,playerType:'HUMAN',logType:'GAMEPLAY',savedAt:new Date().toISOString(),finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_game_log_HUMAN_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
 
 makePyramid(); loadInitialState();

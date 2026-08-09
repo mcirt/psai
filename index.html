@@ -182,7 +182,7 @@
 <body>
 
 <h1>Pyramid Solitaire Input</h1>
-<div class="version">Pyramid Solitaire v1.5.3</div>
+<div class="version">Pyramid Solitaire v1.5.5</div>
 
 <div id="pyramid">
     <div class="pyramid-row"><div class="tile" id="tile1"></div></div>
@@ -237,7 +237,7 @@
 <input type="file" id="fileInput" hidden accept=".json,application/json">
 
 <script>
-    const VERSION = "Pyramid Solitaire v1.5.3";
+    const VERSION = "Pyramid Solitaire v1.5.5";
     const TOTAL_TILES = 52;
     const VALID_RANKS = new Set(["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]);
 
@@ -379,6 +379,12 @@
         openDestination("solver.html", "Pyramid Solitaire Solver");
     });
 
+    function localTimestampForFilename() {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, "0");
+        return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    }
+
     document.getElementById("saveButton").addEventListener("click", () => {
         if (!boardHasData()) {
             updateStatus("There is no board data to save.");
@@ -387,13 +393,15 @@
 
         const payload = {
             version: VERSION,
+            saveType: "PUZZLE",
+            savedAt: new Date().toISOString(),
             tileData
         };
 
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = "pyramid_solitaire_configuration.json";
+        link.download = `pyramid_solitaire_puzzle_${localTimestampForFilename()}.json`;
         document.body.appendChild(link);
         link.click();
         link.remove();
