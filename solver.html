@@ -49,13 +49,22 @@ h1 { text-align:center; margin:0 0 4px; }
 .game-over { color:#238636; font-weight:700; }
 .solver-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:14px auto 0}.solver-controls button{padding:10px 14px;border:0;border-radius:7px;font-weight:700;cursor:pointer}.solver-note{text-align:center;color:#666;font-size:13px;margin-top:8px}
 .thought-panel{max-width:760px;margin:14px auto 0;border:1px solid #bbb;border-radius:8px;padding:10px 12px;background:#fafafa}.thought-panel h2{font-size:18px;margin:0 0 6px}.thought-summary{font-size:13px;color:#555;margin-bottom:8px}.candidate-table{width:100%;border-collapse:collapse;font-size:13px}.candidate-table th,.candidate-table td{border-top:1px solid #ddd;padding:6px 5px;text-align:left;vertical-align:top}.candidate-table th:nth-child(2),.candidate-table td:nth-child(2){text-align:right;white-space:nowrap}.candidate-table tr.chosen{font-weight:700;background:#eef8ee}.strategy-metric{display:inline-block;margin-right:12px}
-.search-stats{max-width:760px;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.search-stat{border:1px solid #ccc;border-radius:8px;padding:8px;text-align:center;background:#fff}.search-stat strong{display:block;font-size:18px}.search-label{font-size:11px;color:#666}.optimality{max-width:760px;margin:8px auto 0;text-align:center;font-size:12px;color:#666}.plan-summary{max-width:760px;margin:12px auto 0;border:1px solid #aaa;border-radius:8px;padding:10px 12px;background:#f7fbff}.plan-summary h2{font-size:18px;margin:0 0 8px}.plan-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.plan-item{text-align:center;border:1px solid #d0d7de;border-radius:7px;padding:7px;background:#fff}.plan-item strong{display:block;font-size:18px}.plan-item span{font-size:11px;color:#666}.plan-status{margin-top:8px;font-size:13px;text-align:center}.plan-progress{margin-top:6px;font-size:12px;color:#555;text-align:center}@media(max-width:620px){.search-stats,.plan-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.search-stats{max-width:760px;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.search-stat{border:1px solid #ccc;border-radius:8px;padding:8px;text-align:center;background:#fff}.search-stat strong{display:block;font-size:18px}.search-label{font-size:11px;color:#666}.optimality{max-width:760px;margin:8px auto 0;text-align:center;font-size:12px;color:#666}.plan-summary{max-width:760px;margin:12px auto 0;border:1px solid #aaa;border-radius:8px;padding:10px 12px;background:#f7fbff}.plan-summary h2{font-size:18px;margin:0 0 8px}.plan-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.plan-item{text-align:center;border:1px solid #d0d7de;border-radius:7px;padding:7px;background:#fff}.plan-item strong{display:block;font-size:18px}.plan-item span{font-size:11px;color:#666}.plan-status{margin-top:8px;font-size:13px;text-align:center}.plan-progress{margin-top:6px;font-size:12px;color:#555;text-align:center}
+.calculated-score{position:fixed;top:10px;left:10px;z-index:50;border:2px solid #1769aa;border-radius:9px;background:#fff;padding:7px 10px;box-shadow:0 2px 8px rgba(0,0,0,.16);text-align:center;min-width:132px}
+.calculated-score .label{display:block;font-size:10px;font-weight:800;letter-spacing:.4px;color:#555}
+.calculated-score strong{display:block;font:700 25px Georgia,serif;color:#1769aa;margin-top:2px}
+.speed-control{display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #bbb;border-radius:7px;background:#fff;font-size:13px;font-weight:700}
+.speed-control select{font:inherit;padding:5px 7px;border:1px solid #aaa;border-radius:6px;background:#fff}
+.drag-ghost.solver-drag{transition:left var(--solver-drag-ms,650ms) ease-in-out,top var(--solver-drag-ms,650ms) ease-in-out,transform var(--solver-drag-ms,650ms) ease-in-out;opacity:.96}
+@media(max-width:620px){.calculated-score{position:static;width:max-content;margin:0 auto 8px}.search-stats,.plan-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
 @media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} }
 </style>
 </head>
 <body>
+<div id="calculated-score" class="calculated-score"><span class="label">CALCULATED FINAL SCORE</span><strong id="calculated-score-value">Calculating…</strong></div>
 <h1>Pyramid Solitaire Solver</h1>
-<div class="version">Pyramid Solitaire v1.5.1</div>
+<div class="version">Pyramid Solitaire v1.5.2</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -73,12 +82,13 @@ h1 { text-align:center; margin:0 0 4px; }
   <button id="download-button">Download Solver Log</button>
 </div>
 <div class="solver-controls">
+  <label class="speed-control">Playback <select id="playback-speed"><option value="520">Fast · 0.52 sec</option><option value="1000" selected>Normal · 1.0 sec</option><option value="1500">Slow · 1.5 sec</option></select></label>
   <button id="backward-step-button">Backward Step</button>
   <button id="start-solver-button">Start Solver</button>
   <button id="pause-solver-button">Pause Solver</button>
   <button id="forward-step-button">Forward Step</button>
 </div>
-<div class="solver-note">v1.5 first runs a dedicated 8260 Perfect Score Probe against the known setup family. If none can reach 8260, it falls back to the normal full-plan solver. Completed games receive the 500 solve bonus plus the 1260 time bonus. Draw playback shows 1/1, 1/6… above Draw, and RESET appears above the button when the inventory is reset.</div>
+<div class="solver-note">v1.5 first runs a dedicated 8260 Perfect Score Probe against the known setup family. If none can reach 8260, it falls back to the normal full-plan solver. Completed games receive the 500 solve bonus plus the 1260 time bonus. The solution is calculated automatically before playback. Choose Fast, Normal, or Slow playback; Normal is the default. Matching and Hold moves visibly drag cards. Draw playback shows 1/1, 1/6… above Draw, and RESET appears above the button when the inventory is reset.</div>
 <div class="search-stats">
   <div class="search-stat"><strong id="decisionStates">0</strong><span class="search-label">states this decision</span></div>
   <div class="search-stat"><strong id="totalStates">0</strong><span class="search-label">states this solver run</span></div>
@@ -116,7 +126,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.5.1';
+const VERSION='Pyramid Solitaire v1.5.2';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -343,7 +353,7 @@ const PERFECT_PROBE_BEAM_WIDTH=900;
 const PERFECT_PROBE_NODE_LIMIT=50000;
 const PERFECT_PROBE_MAX_DEPTH=80;
 const MAX_SOLVER_RESETS=5;
-const SOLVER_PREVIEW_MS=520;
+let solverPreviewMs=1000;
 let solverRunning=false;
 let solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
 let solverActualSeen=new Map();
@@ -540,12 +550,39 @@ function refsForSolverAction(action){
   if(action.type==='MATCH') return [action.a,action.b];
   return [];
 }
-function previewSolverAction(action){
+function centerOf(el){ const r=el.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; }
+async function animateSolverDrag(sourceRef,targetRef){
+  const sourceEl=elementForRef(sourceRef), targetEl=elementForRef(targetRef);
+  if(!sourceEl||!targetEl) return false;
+  const from=centerOf(sourceEl), to=centerOf(targetEl);
+  const ghost=sourceEl.cloneNode(true);
+  ghost.className='tile drag-ghost solver-drag';
+  ghost.style.setProperty('--solver-drag-ms',`${Math.max(260,Math.round(solverPreviewMs*.72))}ms`);
+  ghost.style.left=`${from.x}px`; ghost.style.top=`${from.y}px`;
+  document.body.appendChild(ghost);
+  sourceEl.classList.add('solver-play'); targetEl.classList.add('solver-play');
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  ghost.style.left=`${to.x}px`; ghost.style.top=`${to.y}px`; ghost.style.transform='translate(-50%,-50%) scale(.92)';
+  await new Promise(r=>setTimeout(r,Math.max(260,Math.round(solverPreviewMs*.72))));
+  ghost.remove(); clearSolverHighlights();
+  return true;
+}
+async function previewSolverAction(action){
   clearSolverHighlights();
+  if(action?.type==='HOLD'){
+    const ok=await animateSolverDrag(action.a,{zone:'hold',cardId:'h'});
+    if(ok) return;
+  }
+  if(action?.type==='MATCH'){
+    let source=action.a,target=action.b;
+    if(!elementForRef(source)&&elementForRef(target)){ source=action.b; target=action.a; }
+    const ok=await animateSolverDrag(source,target);
+    if(ok) return;
+  }
   const refs=refsForSolverAction(action);
   refs.forEach(ref=>{ const el=elementForRef(ref); if(el) el.classList.add('solver-play'); });
-  if(action?.type==='HOLD'){ document.getElementById('tileh').classList.add('solver-play'); }
-  return new Promise(resolve=>setTimeout(()=>{ clearSolverHighlights(); resolve(); },refs.length||action?.type==='HOLD'?SOLVER_PREVIEW_MS:180));
+  await new Promise(resolve=>setTimeout(resolve,action?.type==='KING'?Math.max(260,solverPreviewMs*.55):solverPreviewMs));
+  clearSolverHighlights();
 }
 function updateSolverSession(decision){
   solverSessionStats.decisions++;
@@ -770,8 +807,8 @@ function drawRunInfo(path,index){
 }
 function setDrawCounter(info){ const el=document.getElementById('draw-counter'); el.classList.remove('reset-sign'); if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
 function setResetIndicator(){ const el=document.getElementById('draw-counter'); el.textContent='RESET'; el.classList.add('visible','reset-sign'); }
-async function previewDraw(info){ const btn=document.getElementById('draw-button'); setDrawCounter(info||{position:1,total:1}); btn.classList.add('solver-draw-flash'); await new Promise(r=>setTimeout(r,SOLVER_PREVIEW_MS)); btn.classList.remove('solver-draw-flash'); }
-async function previewReset(){ const btn=document.getElementById('draw-button'); setResetIndicator(); btn.classList.add('solver-reset-flash'); await new Promise(r=>setTimeout(r,SOLVER_PREVIEW_MS)); btn.classList.remove('solver-reset-flash'); }
+async function previewDraw(info){ const btn=document.getElementById('draw-button'); setDrawCounter(info||{position:1,total:1}); btn.classList.add('solver-draw-flash'); await new Promise(r=>setTimeout(r,solverPreviewMs)); btn.classList.remove('solver-draw-flash'); }
+async function previewReset(){ const btn=document.getElementById('draw-button'); setResetIndicator(); btn.classList.add('solver-reset-flash'); await new Promise(r=>setTimeout(r,solverPreviewMs)); btn.classList.remove('solver-reset-flash'); }
 async function executePlannedAction(animated=true){
   if(solverPlanIndex>=solverPlan.length) return false;
   const action=solverPlan[solverPlanIndex];
@@ -820,44 +857,62 @@ async function solverLoop(){
   while(solverRunning && !state.gameOver && solverPlanIndex<solverPlan.length){
     const ok=await executePlannedAction(true);
     if(!ok||!solverRunning||state.gameOver) break;
-    await new Promise(r=>setTimeout(r,260));
+    await new Promise(r=>setTimeout(r,Math.max(90,Math.round(solverPreviewMs*.18))));
   }
   solverRunning=false;
   if(state.gameOver) document.getElementById('planProgress').textContent=`Plan completed. Final score: ${state.score.toLocaleString()} (includes +${SOLVE_BONUS} completion +${TIME_BONUS} time). Inventory used: ${inventoryUsedCount(state)}/24.`;
   else if(solverPlanIndex>=solverPlan.length) setStatus('Saved plan finished.');
 }
-async function startSolver(){
-  if(solverRunning||state.gameOver) return;
-  solverRunning=true;
+async function prepareSolverPlan(){
+  const startButton=document.getElementById('start-solver-button');
+  const forwardButton=document.getElementById('forward-step-button');
+  const calc=document.getElementById('calculated-score-value');
+  startButton.disabled=true; forwardButton.disabled=true;
+  calc.textContent='Calculating…';
   solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
   solverActualSeen=new Map(); solverPlan=[]; solverPlanIndex=0; solverPlanResult=null;
   setStatus('Checking the known 8260 setup combinations first…');
   document.getElementById('planProgress').textContent='8260 Perfect Score Probe starting…';
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   const perfect=await searchPerfectScore(simClone(state));
   if(perfect.path){
     solverPlanResult={statesExamined:perfect.probe.statesExamined,duplicatesSkipped:perfect.probe.duplicatesSkipped,deadBranches:0,solutionsFound:1,perfectCandidates:1,bestCompletedScore:PERFECT_SCORE,bestMoveCount:perfect.path.length,bestResets:0,bestScoreImprovements:1,bestPartialScore:0,limitReached:false,optimalityProven:false,stopReason:perfect.probe.stopReason,searchedDepth:perfect.path.length,perfectSetupSeeds:perfect.probe.setupCount,usedCompleteSolution:true,selectedPathLength:perfect.path.length,selectedFinalScore:PERFECT_SCORE,selectedInventoryUsed:24,selectedPerfectPossible:true,perfectProbe:perfect.probe};
-    solverPlan=perfect.path; solverPlanIndex=0; updatePlanPanel(solverPlanResult,perfect.probe.stopReason);
-    setStatus(`Perfect-score route found: ${perfect.probe.winningSetup}. Playing 8260 plan.`);
-    solverLoop(); return;
+    solverPlan=perfect.path; updatePlanPanel(solverPlanResult,perfect.probe.stopReason);
+  }else{
+    setStatus(`${perfect.probe.stopReason} Searching up to ${SEARCH_NODE_LIMIT.toLocaleString()} normal full-game scenarios…`);
+    const found=await searchBestPlan();
+    found.result.perfectProbe=perfect.probe; solverPlanResult=found.result; solverPlan=found.path;
   }
-  setStatus(`${perfect.probe.stopReason} Searching up to ${SEARCH_NODE_LIMIT.toLocaleString()} normal full-game scenarios…`);
-  const found=await searchBestPlan();
-  found.result.perfectProbe=perfect.probe;
-  solverPlanResult=found.result; solverPlan=found.path; solverPlanIndex=0;
-  if(!solverPlan.length){ solverRunning=false; setStatus('No playable plan found.'); return; }
-  setStatus(solverPlanResult.usedCompleteSolution?`Playing best complete solution found: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:`BEST PARTIAL — PUZZLE NOT SOLVED. Playing partial plan scoring ${solverPlanResult.bestPartialScore.toLocaleString()}.`);
+  solverPlanIndex=0;
+  const complete=!!solverPlanResult?.usedCompleteSolution;
+  const score=complete?solverPlanResult.bestCompletedScore:null;
+  calc.textContent=score!=null?score.toLocaleString():'No solution';
+  startButton.disabled=!solverPlan.length; forwardButton.disabled=!solverPlan.length;
+  if(!solverPlan.length){ setStatus('No playable plan found.'); return; }
+  if(complete) setStatus(`Solution ready: calculated final score ${score.toLocaleString()}. Press Start Solver to play it.`);
+  else setStatus(`No complete solution found. Best partial plan scores ${solverPlanResult.bestPartialScore.toLocaleString()}.`);
+  document.getElementById('planProgress').textContent=`Solution ready — ${solverPlan.length} planned moves. Press Start Solver or use Forward Step.`;
+}
+async function startSolver(){
+  if(solverRunning||state.gameOver||!solverPlan.length) return;
+  solverRunning=true;
+  setStatus(solverPlanResult?.usedCompleteSolution?`Playing calculated solution: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:'Playing best partial plan found.');
   solverLoop();
 }
 function pauseSolver(){ solverRunning=false; }
 
 makePyramid(); loadInitialState();
+document.getElementById('start-solver-button').disabled=true;
+document.getElementById('forward-step-button').disabled=true;
+setTimeout(()=>prepareSolverPlan(),0);
 document.getElementById('draw-button').addEventListener('click',async()=>{ if(state.stockQueue.length){ await previewDraw({position:1,total:1}); draw(); } else { await previewReset(); resetStock(); } });
 document.getElementById('undo-button').addEventListener('click',undo);
 document.getElementById('download-button').addEventListener('click',downloadLog);
 document.getElementById('start-solver-button').addEventListener('click',startSolver);
+document.getElementById('playback-speed').addEventListener('change',e=>{ solverPreviewMs=Number(e.target.value)||1000; });
 document.getElementById('pause-solver-button').addEventListener('click',pauseSolver);
-document.getElementById('forward-step-button').addEventListener('click',async()=>{pauseSolver(); if(solverPlanIndex<solverPlan.length) await executePlannedAction(true); else await executeSolverStep(true);});
-document.getElementById('backward-step-button').addEventListener('click',()=>{pauseSolver();undo(); solverPlan=[]; solverPlanIndex=0; solverPlanResult=null; updatePlanPanel(null);});
+document.getElementById('forward-step-button').addEventListener('click',async()=>{pauseSolver(); if(solverPlanIndex<solverPlan.length) await executePlannedAction(true);});
+document.getElementById('backward-step-button').addEventListener('click',()=>{pauseSolver(); if(solverPlanIndex<=0||!history.length){setStatus('Already at the start of the calculated solution.');return;} undo(); solverPlanIndex=Math.max(0,solverPlanIndex-1); document.getElementById('planProgress').textContent=`Ready at planned move ${solverPlanIndex} of ${solverPlan.length}.`;});
 </script>
 </body>
 </html>
