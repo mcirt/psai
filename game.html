@@ -56,7 +56,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.5.5</div>
+<div class="version">Pyramid Solitaire v1.6.0</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -80,7 +80,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.5.5';
+const VERSION='Pyramid Solitaire v1.6.0';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -113,6 +113,8 @@ let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0,
 let history=[];
 let selected=null;
 let pointerSession=null;
+let initialTileData={};
+const sourceFilename=localStorage.getItem('sourceFilename')||'';
 
 function makePyramid(){
   const root=document.getElementById('pyramid'); let id=1;
@@ -130,6 +132,7 @@ function loadInitialState(){
   if(!raw){ setStatus('No board data found. Return to index.html and load a puzzle.'); return; }
   const data=JSON.parse(raw); state.tileData={}; for(let i=1;i<=52;i++) state.tileData[i]=data[i]??data[String(i)]??null;
   state.stockQueue=[]; for(let i=29;i<=52;i++) if(state.tileData[i]) state.stockQueue.push(i);
+  initialTileData=JSON.parse(JSON.stringify(state.tileData));
   renderAll(); bindPointerEvents();
 }
 function cloneState(){ return JSON.parse(JSON.stringify(state)); }
@@ -328,8 +331,11 @@ function localTimestampForFilename(){
   const d=new Date(), pad=n=>String(n).padStart(2,'0');
   return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
+function puzzleSignature(data){ let str=''; for(let i=1;i<=52;i++) str+=`${i}:${data?.[i]||'-'}|`; let h=2166136261; for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);} return `psai-${(h>>>0).toString(16).padStart(8,'0')}`; }
+function longestStreakFromLogs(){ return state.logs.reduce((m,e)=>Math.max(m,Number(e.streak)||0),0); }
 function downloadLog(){
-  const payload={version:VERSION,playerType:'HUMAN',logType:'GAMEPLAY',savedAt:new Date().toISOString(),finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_game_log_HUMAN_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
+  const payload={schemaVersion:2,version:VERSION,playerType:'HUMAN',logType:'GAMEPLAY',savedAt:new Date().toISOString(),solverMode:null,puzzle:{sourceFilename:sourceFilename||null,puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},moves:state.logs,result:{solved:!!state.gameOver,finalScore:state.score,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,perfectScore:state.score===PERFECT_SCORE,inventoryUsed:inventoryUsedCount(state),longestStreak:longestStreakFromLogs()},finalState:state,historyDepth:history.length};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_game_log_HUMAN_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
 
 makePyramid(); loadInitialState();

@@ -62,7 +62,8 @@
             -webkit-user-select: none;
         }
 
-        .tile-value {
+        .tile.selected{outline:3px solid #2f80ed;outline-offset:-2px;}
+.tile-value {
             position: absolute;
             top: 6px;
             left: 0;
@@ -182,7 +183,7 @@
 <body>
 
 <h1>Pyramid Solitaire Input</h1>
-<div class="version">Pyramid Solitaire v1.5.5</div>
+<div class="version">Pyramid Solitaire v1.6.0</div>
 
 <div id="pyramid">
     <div class="pyramid-row"><div class="tile" id="tile1"></div></div>
@@ -226,6 +227,14 @@
 
 <div id="status" class="status">Next input: Tile 1 of 52</div>
 
+<div class="solver-mode-panel" style="max-width:520px;margin:14px auto 0;border:1px solid #ccc;border-radius:9px;padding:10px;background:#fafafa;">
+  <div style="font-weight:700;margin-bottom:7px;">Solver Mode</div>
+  <div style="display:flex;gap:8px;justify-content:center;">
+    <button type="button" id="modeOriginal" class="action-button" style="background:#666;">ORIGINAL</button>
+    <button type="button" id="modeStandard" class="action-button" style="background:#1677b8;">STANDARD</button>
+  </div>
+  <div id="modeNote" style="font-size:12px;color:#555;margin-top:7px;">ORIGINAL = v1.5.5 solver unchanged. STANDARD adds Inventory Wave, Post-Reset evaluation, and Hold Corridor awareness.</div>
+</div>
 <div class="button-grid">
     <button id="deleteButton" class="action-button">Delete Last Input</button>
     <button id="clearButton" class="action-button">Clear Board</button>
@@ -237,7 +246,7 @@
 <input type="file" id="fileInput" hidden accept=".json,application/json">
 
 <script>
-    const VERSION = "Pyramid Solitaire v1.5.5";
+    const VERSION = "Pyramid Solitaire v1.6.0";
     const TOTAL_TILES = 52;
     const VALID_RANKS = new Set(["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]);
 
@@ -266,6 +275,8 @@
 
     let currentTile = 1;
     let tileData = {};
+    let selectedTileId = null;
+    let solverMode = localStorage.getItem("psaiSolverMode") === "STANDARD" ? "STANDARD" : "ORIGINAL";
 
     const statusElement = document.getElementById("status");
 
@@ -309,17 +320,40 @@
         updateStatus();
     }
 
+    function clearTileSelection() {
+        document.querySelectorAll('.tile.selected').forEach(el => el.classList.remove('selected'));
+        selectedTileId = null;
+    }
+
+    function selectTile(tileNumber) {
+        clearTileSelection();
+        selectedTileId = tileNumber;
+        document.getElementById(`tile${tileNumber}`)?.classList.add('selected');
+        updateStatus(`Tile ${tileNumber} selected for editing. Choose a replacement rank.`);
+    }
+
+    document.querySelectorAll('.tile').forEach(tile => {
+        tile.addEventListener('click', () => selectTile(Number(tile.id.replace('tile',''))));
+    });
+
     function enterRank(rank, button) {
-        if (currentTile > TOTAL_TILES) {
-            updateStatus("All 52 tiles are already filled.");
-            return;
+        if (selectedTileId !== null) {
+            const id = selectedTileId;
+            tileData[id] = rank;
+            setTileValue(id, rank);
+            clearTileSelection();
+            recalculateCurrentTile();
+            updateStatus(`Tile ${id} updated to ${rank}.`);
+        } else {
+            if (currentTile > TOTAL_TILES) {
+                updateStatus("All 52 tiles are filled. Tap any card to edit it.");
+                return;
+            }
+            tileData[currentTile] = rank;
+            setTileValue(currentTile, rank);
+            currentTile++;
+            updateStatus();
         }
-
-        tileData[currentTile] = rank;
-        setTileValue(currentTile, rank);
-        currentTile++;
-        updateStatus();
-
         document.querySelectorAll(".card-key.active").forEach(key => key.classList.remove("active"));
         button.classList.add("active");
         window.setTimeout(() => button.classList.remove("active"), 140);
@@ -331,21 +365,18 @@
     });
 
     document.getElementById("deleteButton").addEventListener("click", () => {
-        if (currentTile === 1) {
-            updateStatus("Nothing to delete.");
-            return;
+        if (selectedTileId !== null) {
+            const id=selectedTileId; delete tileData[id]; setTileValue(id,null); clearTileSelection(); recalculateCurrentTile(); updateStatus(`Tile ${id} cleared.`); return;
         }
-
+        if (currentTile === 1) { updateStatus("Nothing to delete."); return; }
         if (currentTile > TOTAL_TILES) currentTile = TOTAL_TILES + 1;
-        currentTile--;
-        delete tileData[currentTile];
-        setTileValue(currentTile, null);
-        updateStatus();
+        currentTile--; delete tileData[currentTile]; setTileValue(currentTile, null); updateStatus();
     });
 
     document.getElementById("clearButton").addEventListener("click", () => {
         tileData = {};
         currentTile = 1;
+        clearTileSelection();
         for (let tileNumber = 1; tileNumber <= TOTAL_TILES; tileNumber++) {
             setTileValue(tileNumber, null);
         }
@@ -364,6 +395,7 @@
 
         localStorage.setItem("tileData", JSON.stringify(tileData));
         localStorage.setItem("pyramidSolitaireVersion", VERSION);
+        localStorage.setItem("psaiSolverMode", solverMode);
 
         const opened = window.open(fileName, windowName);
         if (!opened) {
@@ -378,6 +410,22 @@
     document.getElementById("solveButton").addEventListener("click", () => {
         openDestination("solver.html", "Pyramid Solitaire Solver");
     });
+
+
+    function setSolverMode(mode) {
+        solverMode = mode === 'STANDARD' ? 'STANDARD' : 'ORIGINAL';
+        localStorage.setItem('psaiSolverMode',solverMode);
+        const o=document.getElementById('modeOriginal'), st=document.getElementById('modeStandard');
+        if(o){o.style.outline=solverMode==='ORIGINAL'?'3px solid #ffd400':'none';}
+        if(st){st.style.outline=solverMode==='STANDARD'?'3px solid #ffd400':'none';}
+        const note=document.getElementById('modeNote');
+        if(note) note.textContent=solverMode==='ORIGINAL'
+          ? 'ORIGINAL = the v1.5.5 solver exactly, for clean A/B comparison.'
+          : 'STANDARD = original solver + Inventory Wave + Post-Reset evaluation + Hold Corridor awareness.';
+    }
+    document.getElementById('modeOriginal').addEventListener('click',()=>setSolverMode('ORIGINAL'));
+    document.getElementById('modeStandard').addEventListener('click',()=>setSolverMode('STANDARD'));
+    setSolverMode(solverMode);
 
     function localTimestampForFilename() {
         const d = new Date();
@@ -395,6 +443,7 @@
             version: VERSION,
             saveType: "PUZZLE",
             savedAt: new Date().toISOString(),
+            solverMode,
             tileData
         };
 
@@ -425,6 +474,7 @@
                     ? parsed.tileData
                     : parsed;
 
+                if (parsed?.solverMode) setSolverMode(parsed.solverMode);
                 const cleaned = {};
                 for (let tileNumber = 1; tileNumber <= TOTAL_TILES; tileNumber++) {
                     const rank = normalizeRank(uploadedTileData?.[tileNumber]);
