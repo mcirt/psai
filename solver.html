@@ -47,12 +47,21 @@ h1 { text-align:center; margin:0 0 4px; }
 #moveLog li { margin:4px 0; }
 .drag-ghost { position:fixed; pointer-events:none; z-index:9999; opacity:.9; transform:translate(-50%,-50%) scale(1.08); }
 .game-over { color:#238636; font-weight:700; }
-.solver-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:14px auto 0}.solver-controls button{padding:10px 14px;border:0;border-radius:7px;font-weight:700;cursor:pointer}.solver-note{text-align:center;color:#666;font-size:13px;margin-top:8px}
+.solver-controls{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:flex-start;margin:14px auto 0}
+.solver-controls .transport-button{width:68px;height:60px;padding:0;border:1px solid #aaa;border-radius:12px;background:#f4f4f4;color:#111;font-size:31px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,.16);touch-action:manipulation}
+.solver-controls .transport-button:active{transform:translateY(1px)}
+.solver-controls .transport-button:disabled{opacity:.38;cursor:default;transform:none}
+.solver-controls #play-pause-button{background:#1769aa;color:#fff;border-color:#1769aa;font-size:31px}
+.solver-controls #play-pause-button.playing{background:#b42318;border-color:#b42318}
+.transport-wrap{display:flex;flex-direction:column;align-items:center;gap:3px}
+.transport-label{font-size:10px;font-weight:800;color:#666;letter-spacing:.3px}
+.solver-note{text-align:center;color:#666;font-size:13px;margin-top:8px}
 .thought-panel{max-width:760px;margin:14px auto 0;border:1px solid #bbb;border-radius:8px;padding:10px 12px;background:#fafafa}.thought-panel h2{font-size:18px;margin:0 0 6px}.thought-summary{font-size:13px;color:#555;margin-bottom:8px}.candidate-table{width:100%;border-collapse:collapse;font-size:13px}.candidate-table th,.candidate-table td{border-top:1px solid #ddd;padding:6px 5px;text-align:left;vertical-align:top}.candidate-table th:nth-child(2),.candidate-table td:nth-child(2){text-align:right;white-space:nowrap}.candidate-table tr.chosen{font-weight:700;background:#eef8ee}.strategy-metric{display:inline-block;margin-right:12px}
 .search-stats{max-width:760px;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.search-stat{border:1px solid #ccc;border-radius:8px;padding:8px;text-align:center;background:#fff}.search-stat strong{display:block;font-size:18px}.search-label{font-size:11px;color:#666}.optimality{max-width:760px;margin:8px auto 0;text-align:center;font-size:12px;color:#666}.plan-summary{max-width:760px;margin:12px auto 0;border:1px solid #aaa;border-radius:8px;padding:10px 12px;background:#f7fbff}.plan-summary h2{font-size:18px;margin:0 0 8px}.plan-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.plan-item{text-align:center;border:1px solid #d0d7de;border-radius:7px;padding:7px;background:#fff}.plan-item strong{display:block;font-size:18px}.plan-item span{font-size:11px;color:#666}.plan-status{margin-top:8px;font-size:13px;text-align:center}.plan-progress{margin-top:6px;font-size:12px;color:#555;text-align:center}
 .calculated-score{position:fixed;top:10px;left:10px;z-index:50;border:2px solid #1769aa;border-radius:9px;background:#fff;padding:7px 10px;box-shadow:0 2px 8px rgba(0,0,0,.16);text-align:center;min-width:132px}
 .calculated-score .label{display:block;font-size:10px;font-weight:800;letter-spacing:.4px;color:#555}
 .calculated-score strong{display:block;font:700 25px Georgia,serif;color:#1769aa;margin-top:2px}
+.playback-speed-row{display:flex;justify-content:center;margin:10px auto 0}
 .speed-control{display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #bbb;border-radius:7px;background:#fff;font-size:13px;font-weight:700}
 .speed-control select{font:inherit;padding:5px 7px;border:1px solid #aaa;border-radius:6px;background:#fff}
 .drag-ghost.solver-drag{transition:left var(--solver-drag-ms,650ms) ease-in-out,top var(--solver-drag-ms,650ms) ease-in-out,transform var(--solver-drag-ms,650ms) ease-in-out;opacity:.96}
@@ -67,7 +76,7 @@ h1 { text-align:center; margin:0 0 4px; }
 @keyframes kingSpark{0%{opacity:1;transform:translate(-50%,-50%) translate(0,0) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) translate(var(--dx),var(--dy)) scale(.25)}}
 @media(max-width:620px){.calculated-score{position:static;width:max-content;margin:0 auto 8px}.search-stats,.plan-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
 
-@media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} }
+@media(max-width:520px){ #score{font-size:42px;} .controls{gap:14px;} .solver-controls{gap:7px;flex-wrap:nowrap}.solver-controls .transport-button{width:61px;height:56px;font-size:28px}.transport-label{font-size:9px} }
 </style>
 </head>
 <body>
@@ -91,13 +100,34 @@ h1 { text-align:center; margin:0 0 4px; }
   <button id="download-button">Download Solver Log</button>
 </div>
 <div class="solver-controls">
-  <label class="speed-control">Playback <select id="playback-speed"><option value="520">Fast · 0.52 sec</option><option value="1000" selected>Normal · 1.0 sec</option><option value="1500">Slow · 1.5 sec</option></select></label>
-  <button id="backward-step-button">Backward Step</button>
-  <button id="start-solver-button">Start Solver</button>
-  <button id="pause-solver-button">Pause Solver</button>
-  <button id="forward-step-button">Forward Step</button>
+  <div class="transport-wrap">
+    <button id="restart-playback-button" class="transport-button" title="Restart playback from beginning" aria-label="Restart playback from beginning">⏮️</button>
+    <span class="transport-label">RESTART</span>
+  </div>
+  <div class="transport-wrap">
+    <button id="backward-step-button" class="transport-button" title="Previous move" aria-label="Previous move">⏪</button>
+    <span class="transport-label">BACK</span>
+  </div>
+  <div class="transport-wrap">
+    <button id="play-pause-button" class="transport-button" title="Play or pause solution" aria-label="Play or pause solution">⏯️</button>
+    <span class="transport-label">PLAY / PAUSE</span>
+  </div>
+  <div class="transport-wrap">
+    <button id="forward-step-button" class="transport-button" title="Next move" aria-label="Next move">⏩</button>
+    <span class="transport-label">FORWARD</span>
+  </div>
 </div>
-<div class="solver-note">v1.6 supports ORIGINAL (the unchanged v1.5.5 solver) and STANDARD (Original + Inventory Wave + Post-Reset evaluation + Hold Corridor). The selected mode comes from index.html. It first runs a dedicated 8260 Perfect Score Probe against the known setup family. If none can reach 8260, it falls back to the normal full-plan solver. Completed games receive the 500 solve bonus plus the 1260 time bonus. The solution is calculated automatically before playback. Choose Fast, Normal, or Slow playback; Normal is the default. Matching and Hold moves visibly drag cards. Draw playback shows 1/1, 1/6… above Draw, and RESET appears above the button when the inventory is reset.</div>
+<div class="playback-speed-row">
+  <label class="speed-control">Playback
+    <select id="playback-speed">
+      <option value="300">Ultra · 0.30 sec</option>
+      <option value="520">Fast · 0.52 sec</option>
+      <option value="1000" selected>Normal · 1.0 sec</option>
+      <option value="1500">Slow · 1.5 sec</option>
+    </select>
+  </label>
+</div>
+<div class="solver-note">v1.6.1 keeps PSAI ORIGINAL and STANDARD search behavior unchanged, while upgrading solution playback with restart, exact backward replay snapshots, a combined Play/Pause transport button, Forward stepping, and an Ultra 0.30 sec playback option. Normal remains the default. Consecutive non-Draw/Reset actions are counted above Hold; Draw/Reset progress remains above Draw.</div>
 <div class="search-stats">
   <div class="search-stat"><strong id="decisionStates">0</strong><span class="search-label">states this decision</span></div>
   <div class="search-stat"><strong id="totalStates">0</strong><span class="search-label">states this solver run</span></div>
@@ -135,7 +165,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.6.0';
+const VERSION='Pyramid Solitaire v1.6.1';
 const SOLVER_MODE=localStorage.getItem('psaiSolverMode')==='STANDARD'?'STANDARD':'ORIGINAL';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
@@ -357,7 +387,7 @@ function localTimestampForFilename(){
 }
 function puzzleSignature(data){let str='';for(let i=1;i<=52;i++)str+=`${i}:${data?.[i]||'-'}|`;let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);}return `psai-${(h>>>0).toString(16).padStart(8,'0')}`;}
 function downloadLog(){
-  const payload={schemaVersion:2,version:VERSION,playerType:'SOLVER',logType:'SOLVER',solverMode:SOLVER_MODE,savedAt:new Date().toISOString(),puzzle:{puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},searchConfig:{mode:SOLVER_MODE,tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE,perfectProbeBeamWidth:PERFECT_PROBE_BEAM_WIDTH,perfectProbeStateLimit:PERFECT_PROBE_NODE_LIMIT,inventoryWave:SOLVER_MODE==='STANDARD',postResetEvaluation:SOLVER_MODE==='STANDARD',holdCorridor:SOLVER_MODE==='STANDARD'},strategyDiagnostics:{holdCorridor:holdCorridorStats,inventoryWaveFinal:SOLVER_MODE==='STANDARD'?inventoryWavePotential(state):null,postResetProfileFinal:SOLVER_MODE==='STANDARD'?nextDeploymentProfile(state):null},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_solver_log_SOLVER_${SOLVER_MODE}_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
+  const payload={schemaVersion:2,version:VERSION,playerType:'SOLVER',logType:'SOLVER',solverMode:SOLVER_MODE,savedAt:new Date().toISOString(),puzzle:{puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},searchConfig:{mode:SOLVER_MODE,tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE,perfectProbeBeamWidth:PERFECT_PROBE_BEAM_WIDTH,perfectProbeStateLimit:PERFECT_PROBE_NODE_LIMIT,inventoryWave:SOLVER_MODE==='STANDARD',postResetEvaluation:SOLVER_MODE==='STANDARD',holdCorridor:SOLVER_MODE==='STANDARD'},strategyDiagnostics:{holdCorridor:holdCorridorStats,inventoryWaveFinal:SOLVER_MODE==='STANDARD'?inventoryWavePotential(state):null,postResetProfileFinal:SOLVER_MODE==='STANDARD'?nextDeploymentProfile(state):null},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex,snapshotPlayback:true,snapshotsCaptured:solverPlaybackSnapshots.filter(Boolean).length,snapshotHits:solverPlaybackSnapshotHits,snapshotRestores:solverPlaybackSnapshotRestores},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_solver_log_SOLVER_${SOLVER_MODE}_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
 
 
@@ -383,6 +413,9 @@ let pendingSolverMeta=null;
 let solverPlan=[];
 let solverPlanIndex=0;
 let solverPlanResult=null;
+let solverPlaybackSnapshots=[];
+let solverPlaybackSnapshotHits=0;
+let solverPlaybackSnapshotRestores=0;
 let executingPlannedAction=false;
 
 function simClone(s){ return JSON.parse(JSON.stringify(s)); }
@@ -926,32 +959,89 @@ function buildPlanMeta(action,index){
     chosen:actionLabel(state,action)
   };
 }
+function isCountedAction(action){ return !!action && ['MATCH','KING','HOLD'].includes(action.type); }
+function actionRunInfo(path,index){
+  if(!isCountedAction(path[index])) return null;
+  let start=index,end=index;
+  while(start>0 && isCountedAction(path[start-1])) start--;
+  while(end+1<path.length && isCountedAction(path[end+1])) end++;
+  return {position:index-start+1,total:end-start+1,start,end};
+}
 function drawRunInfo(path,index){
   if(path[index]?.type!=='DRAW')return null;
   let start=index,end=index; while(start>0&&path[start-1]?.type==='DRAW')start--; while(end+1<path.length&&path[end+1]?.type==='DRAW')end++;
   return {position:index-start+1,total:end-start+1};
 }
-function setDrawCounter(info){ const el=document.getElementById('draw-counter'); el.classList.remove('reset-sign'); if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
-function setResetIndicator(){ const el=document.getElementById('draw-counter'); el.textContent='RESET'; el.classList.add('visible','reset-sign'); }
-function actionRunInfo(path,index){ if(['DRAW','RESET'].includes(path[index]?.type))return null; let start=index,end=index; while(start>0&&!['DRAW','RESET'].includes(path[start-1]?.type))start--; while(end+1<path.length&&!['DRAW','RESET'].includes(path[end+1]?.type))end++; return {position:index-start+1,total:end-start+1}; }
-function setActionCounter(info){ const el=document.getElementById('action-counter'); if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
+function setDrawCounter(info){ const el=document.getElementById('draw-counter'); el.classList.remove('reset-sign'); if(!info){el.classList.remove('visible');return;} setActionCounter(null); el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
+function setResetIndicator(){ setActionCounter(null); const el=document.getElementById('draw-counter'); el.textContent='RESET'; el.classList.add('visible','reset-sign'); }
+function setActionCounter(info){ const el=document.getElementById('action-counter'); if(!el)return; if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
 async function previewDraw(info){ const btn=document.getElementById('draw-button'); setDrawCounter(info||{position:1,total:1}); btn.classList.add('solver-draw-flash'); await new Promise(r=>setTimeout(r,solverPreviewMs)); btn.classList.remove('solver-draw-flash'); }
 async function previewReset(){ const btn=document.getElementById('draw-button'); setResetIndicator(); btn.classList.add('solver-reset-flash'); await new Promise(r=>setTimeout(r,solverPreviewMs)); btn.classList.remove('solver-reset-flash'); }
+
+function initializeSolverPlayback(){
+  solverPlanIndex=0;
+  solverPlaybackSnapshots=[cloneState()];
+  solverPlaybackSnapshotHits=0;
+  solverPlaybackSnapshotRestores=0;
+  setDrawCounter(null);
+  setActionCounter(null);
+  updatePlaybackTransport();
+}
+function captureSolverPlaybackSnapshot(index){ solverPlaybackSnapshots[index]=cloneState(); }
+function restoreSolverPlaybackSnapshot(index,announce=true){
+  const snap=solverPlaybackSnapshots[index];
+  if(!snap) return false;
+  state=JSON.parse(JSON.stringify(snap));
+  solverPlanIndex=index;
+  selected=null; pointerSession=null; pendingSolverMeta=null; executingPlannedAction=false;
+  clearHighlights(); clearSolverHighlights(); setDrawCounter(null); setActionCounter(null); renderAll();
+  solverPlaybackSnapshotRestores++;
+  if(announce) document.getElementById('planProgress').textContent=`Ready at planned move ${solverPlanIndex} of ${solverPlan.length}. Exact playback snapshot restored.`;
+  updatePlaybackTransport();
+  return true;
+}
+function updatePlaybackTransport(){
+  const restart=document.getElementById('restart-playback-button');
+  const back=document.getElementById('backward-step-button');
+  const forward=document.getElementById('forward-step-button');
+  const play=document.getElementById('play-pause-button');
+  if(restart) restart.disabled=!solverPlan.length || solverPlanIndex<=0 || solverRunning;
+  if(back) back.disabled=solverPlanIndex<=0 || solverRunning;
+  if(forward) forward.disabled=!solverPlan.length || solverPlanIndex>=solverPlan.length || solverRunning;
+  if(play){
+    const canPlay=!!solverPlan.length && !state.gameOver && solverPlanIndex<solverPlan.length;
+    play.disabled=!canPlay && !solverRunning;
+    play.textContent='⏯️';
+    play.classList.toggle('playing',solverRunning);
+    play.title=solverRunning?'Pause solution':'Play solution';
+    play.setAttribute('aria-label',solverRunning?'Pause solution':'Play solution');
+  }
+}
 async function executePlannedAction(animated=true){
   if(solverPlanIndex>=solverPlan.length) return false;
-  const action=solverPlan[solverPlanIndex];
-  pendingSolverMeta=buildPlanMeta(action,solverPlanIndex);
-  executingPlannedAction=true;
-  if(animated){ if(action.type==='DRAW'){setActionCounter(null);await previewDraw(drawRunInfo(solverPlan,solverPlanIndex));} else if(action.type==='RESET'){setActionCounter(null);await previewReset();} else { setDrawCounter(null); setActionCounter(actionRunInfo(solverPlan,solverPlanIndex)); await previewSolverAction(action); } }
-  if(action.type==='KING') clearKing(action.a);
-  else if(action.type==='MATCH') matchRefs(action.a,action.b);
-  else if(action.type==='HOLD') moveToHold(action.a);
-  else if(action.type==='DRAW') draw();
-  else if(action.type==='RESET') resetStock();
-  solverPlanIndex++;
-  executingPlannedAction=false;
-  pendingSolverMeta=null;
+  const currentIndex=solverPlanIndex, nextIndex=currentIndex+1, action=solverPlan[currentIndex];
+  const cachedNext=!!solverPlaybackSnapshots[nextIndex];
+  pendingSolverMeta=buildPlanMeta(action,currentIndex); executingPlannedAction=true;
+  if(animated){
+    if(action.type==='DRAW'){ setActionCounter(null); await previewDraw(drawRunInfo(solverPlan,currentIndex)); }
+    else if(action.type==='RESET'){ setActionCounter(null); await previewReset(); }
+    else { setDrawCounter(null); setActionCounter(actionRunInfo(solverPlan,currentIndex)); await previewSolverAction(action); }
+  }
+  if(cachedNext){
+    solverPlaybackSnapshotHits++;
+    restoreSolverPlaybackSnapshot(nextIndex,false);
+  }else{
+    if(action.type==='KING') clearKing(action.a);
+    else if(action.type==='MATCH') matchRefs(action.a,action.b);
+    else if(action.type==='HOLD') moveToHold(action.a);
+    else if(action.type==='DRAW') draw();
+    else if(action.type==='RESET') resetStock();
+    solverPlanIndex=nextIndex;
+    captureSolverPlaybackSnapshot(solverPlanIndex);
+  }
+  executingPlannedAction=false; pendingSolverMeta=null; setDrawCounter(null); setActionCounter(null);
   document.getElementById('planProgress').textContent=`Playing planned move ${solverPlanIndex} of ${solverPlan.length}.`;
+  updatePlaybackTransport();
   return true;
 }
 
@@ -988,11 +1078,12 @@ async function solverLoop(){
     await new Promise(r=>setTimeout(r,Math.max(90,Math.round(solverPreviewMs*.18))));
   }
   solverRunning=false;
-  if(state.gameOver) document.getElementById('planProgress').textContent=`Plan completed. Final score: ${state.score.toLocaleString()} (includes +${SOLVE_BONUS} completion +${TIME_BONUS} time). Inventory used: ${inventoryUsedCount(state)}/24.`;
+  if(state.gameOver){ document.getElementById('calculated-score-value').textContent=`FINAL ${state.score.toLocaleString()}`; document.getElementById('planProgress').textContent=`Plan completed. Final score: ${state.score.toLocaleString()} (includes +${SOLVE_BONUS} completion +${TIME_BONUS} time). Inventory used: ${inventoryUsedCount(state)}/24.`; }
   else if(solverPlanIndex>=solverPlan.length) setStatus('Saved plan finished.');
+  updatePlaybackTransport();
 }
 async function prepareSolverPlan(){
-  const startButton=document.getElementById('start-solver-button');
+  const startButton=document.getElementById('play-pause-button');
   const forwardButton=document.getElementById('forward-step-button');
   const calc=document.getElementById('calculated-score-value');
   startButton.disabled=true; forwardButton.disabled=true;
@@ -1000,6 +1091,7 @@ async function prepareSolverPlan(){
   document.getElementById('optimalityStatus').textContent=`${SOLVER_MODE} mode — BEST FOUND, not an optimality proof.`;
   solverSessionStats={decisions:0,totalNodes:0,duplicates:0,deadBranches:0,limitHits:0};
   solverActualSeen=new Map(); solverPlan=[]; solverPlanIndex=0; solverPlanResult=null;
+  solverPlaybackSnapshots=[]; solverPlaybackSnapshotHits=0; solverPlaybackSnapshotRestores=0;
   holdCorridorStats={calls:0,nodes:0,closuresFound:0,longestProjectedCorridor:0,bestProjectedValue:0}; holdCorridorMemo.clear();
   setStatus('Checking the known 8260 setup combinations first…');
   document.getElementById('planProgress').textContent='8260 Perfect Score Probe starting…';
@@ -1013,7 +1105,7 @@ async function prepareSolverPlan(){
     const found=await searchBestPlan();
     found.result.perfectProbe=perfect.probe; solverPlanResult=found.result; solverPlan=found.path;
   }
-  solverPlanIndex=0;
+  initializeSolverPlayback();
   const complete=!!solverPlanResult?.usedCompleteSolution;
   const score=complete?solverPlanResult.bestCompletedScore:null;
   calc.textContent=score!=null?score.toLocaleString():'No solution';
@@ -1021,28 +1113,42 @@ async function prepareSolverPlan(){
   if(!solverPlan.length){ setStatus('No playable plan found.'); return; }
   if(complete) setStatus(`Solution ready: calculated final score ${score.toLocaleString()}. Press Start Solver to play it.`);
   else setStatus(`No complete solution found. Best partial plan scores ${solverPlanResult.bestPartialScore.toLocaleString()}.`);
-  document.getElementById('planProgress').textContent=`Solution ready — ${solverPlan.length} planned moves. Press Start Solver or use Forward Step.`;
+  document.getElementById('planProgress').textContent=`Solution ready — ${solverPlan.length} planned moves. Use Play/Pause or Forward.`;
+  updatePlaybackTransport();
 }
 async function startSolver(){
   if(solverRunning||state.gameOver||!solverPlan.length) return;
-  solverRunning=true;
+  solverRunning=true; updatePlaybackTransport();
   setStatus(solverPlanResult?.usedCompleteSolution?`Playing calculated solution: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:'Playing best partial plan found.');
   solverLoop();
 }
-function pauseSolver(){ solverRunning=false; }
+function pauseSolver(){ solverRunning=false; setDrawCounter(null); setActionCounter(null); updatePlaybackTransport(); }
 
 makePyramid(); loadInitialState();
-document.getElementById('start-solver-button').disabled=true;
+document.getElementById('play-pause-button').disabled=true;
 document.getElementById('forward-step-button').disabled=true;
 setTimeout(()=>prepareSolverPlan(),0);
 document.getElementById('draw-button').addEventListener('click',async()=>{ if(state.stockQueue.length){ await previewDraw({position:1,total:1}); draw(); } else { await previewReset(); resetStock(); } });
 document.getElementById('undo-button').addEventListener('click',undo);
 document.getElementById('download-button').addEventListener('click',downloadLog);
-document.getElementById('start-solver-button').addEventListener('click',startSolver);
+document.getElementById('play-pause-button').addEventListener('click',()=>{ if(solverRunning) pauseSolver(); else startSolver(); });
 document.getElementById('playback-speed').addEventListener('change',e=>{ solverPreviewMs=Number(e.target.value)||1000; });
-document.getElementById('pause-solver-button').addEventListener('click',pauseSolver);
-document.getElementById('forward-step-button').addEventListener('click',async()=>{pauseSolver(); if(solverPlanIndex<solverPlan.length) await executePlannedAction(true);});
-document.getElementById('backward-step-button').addEventListener('click',()=>{pauseSolver(); if(solverPlanIndex<=0||!history.length){setStatus('Already at the start of the calculated solution.');return;} undo(); solverPlanIndex=Math.max(0,solverPlanIndex-1); document.getElementById('planProgress').textContent=`Ready at planned move ${solverPlanIndex} of ${solverPlan.length}.`;});
+document.getElementById('forward-step-button').addEventListener('click',async()=>{ pauseSolver(); if(solverPlanIndex<solverPlan.length) await executePlannedAction(true); updatePlaybackTransport(); });
+document.getElementById('restart-playback-button').addEventListener('click',()=>{
+  pauseSolver();
+  if(!solverPlan.length){ setStatus('No calculated solution is loaded.'); return; }
+  if(!solverPlaybackSnapshots[0] && solverPlanIndex===0) solverPlaybackSnapshots[0]=cloneState();
+  if(!restoreSolverPlaybackSnapshot(0,true)){ setStatus('Initial playback snapshot is unavailable.'); return; }
+  setStatus('Playback restored to the beginning of the calculated solution.');
+});
+document.getElementById('backward-step-button').addEventListener('click',()=>{
+  pauseSolver();
+  if(solverPlanIndex<=0){ setStatus('Already at the start of the calculated solution.'); return; }
+  const target=solverPlanIndex-1;
+  if(!restoreSolverPlaybackSnapshot(target,true)){ setStatus(`Playback snapshot ${target} is unavailable. State was not changed.`); return; }
+  setStatus(`Restored exact state before planned move ${target+1}.`);
+});
+updatePlaybackTransport();
 </script>
 </body>
 </html>
