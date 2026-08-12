@@ -165,7 +165,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.6.1';
+const VERSION='Pyramid Solitaire v1.6.2';
 const SOLVER_MODE=localStorage.getItem('psaiSolverMode')==='STANDARD'?'STANDARD':'ORIGINAL';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
@@ -975,6 +975,14 @@ function drawRunInfo(path,index){
 function setDrawCounter(info){ const el=document.getElementById('draw-counter'); el.classList.remove('reset-sign'); if(!info){el.classList.remove('visible');return;} setActionCounter(null); el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
 function setResetIndicator(){ setActionCounter(null); const el=document.getElementById('draw-counter'); el.textContent='RESET'; el.classList.add('visible','reset-sign'); }
 function setActionCounter(info){ const el=document.getElementById('action-counter'); if(!el)return; if(!info){el.classList.remove('visible');return;} el.textContent=`${info.position}/${info.total}`; el.classList.add('visible'); }
+function syncPlaybackCounters(index=solverPlanIndex){
+  if(index<=0 || !solverPlan.length){ setDrawCounter(null); setActionCounter(null); return; }
+  const previousIndex=Math.min(index-1,solverPlan.length-1);
+  const action=solverPlan[previousIndex];
+  if(action?.type==='DRAW') setDrawCounter(drawRunInfo(solverPlan,previousIndex));
+  else if(action?.type==='RESET') setResetIndicator();
+  else { setDrawCounter(null); setActionCounter(actionRunInfo(solverPlan,previousIndex)); }
+}
 async function previewDraw(info){ const btn=document.getElementById('draw-button'); setDrawCounter(info||{position:1,total:1}); btn.classList.add('solver-draw-flash'); await new Promise(r=>setTimeout(r,solverPreviewMs)); btn.classList.remove('solver-draw-flash'); }
 async function previewReset(){ const btn=document.getElementById('draw-button'); setResetIndicator(); btn.classList.add('solver-reset-flash'); await new Promise(r=>setTimeout(r,solverPreviewMs)); btn.classList.remove('solver-reset-flash'); }
 
@@ -994,7 +1002,7 @@ function restoreSolverPlaybackSnapshot(index,announce=true){
   state=JSON.parse(JSON.stringify(snap));
   solverPlanIndex=index;
   selected=null; pointerSession=null; pendingSolverMeta=null; executingPlannedAction=false;
-  clearHighlights(); clearSolverHighlights(); setDrawCounter(null); setActionCounter(null); renderAll();
+  clearHighlights(); clearSolverHighlights(); renderAll(); syncPlaybackCounters(index);
   solverPlaybackSnapshotRestores++;
   if(announce) document.getElementById('planProgress').textContent=`Ready at planned move ${solverPlanIndex} of ${solverPlan.length}. Exact playback snapshot restored.`;
   updatePlaybackTransport();
@@ -1039,7 +1047,7 @@ async function executePlannedAction(animated=true){
     solverPlanIndex=nextIndex;
     captureSolverPlaybackSnapshot(solverPlanIndex);
   }
-  executingPlannedAction=false; pendingSolverMeta=null; setDrawCounter(null); setActionCounter(null);
+  executingPlannedAction=false; pendingSolverMeta=null;
   document.getElementById('planProgress').textContent=`Playing planned move ${solverPlanIndex} of ${solverPlan.length}.`;
   updatePlaybackTransport();
   return true;
@@ -1122,7 +1130,7 @@ async function startSolver(){
   setStatus(solverPlanResult?.usedCompleteSolution?`Playing calculated solution: ${solverPlanResult.bestCompletedScore.toLocaleString()} points.`:'Playing best partial plan found.');
   solverLoop();
 }
-function pauseSolver(){ solverRunning=false; setDrawCounter(null); setActionCounter(null); updatePlaybackTransport(); }
+function pauseSolver(){ solverRunning=false; updatePlaybackTransport(); }
 
 makePyramid(); loadInitialState();
 document.getElementById('play-pause-button').disabled=true;
