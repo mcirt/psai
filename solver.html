@@ -165,7 +165,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.6.2';
+const VERSION='Pyramid Solitaire v1.6.3';
 const SOLVER_MODE=localStorage.getItem('psaiSolverMode')==='STANDARD'?'STANDARD':'ORIGINAL';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
@@ -193,9 +193,10 @@ function applyCardFace(el,rank){
 const BLOCKERS={1:[2,3],2:[4,5],3:[5,6],4:[7,8],5:[8,9],6:[9,10],7:[11,12],8:[12,13],9:[13,14],10:[14,15],11:[16,17],12:[17,18],13:[18,19],14:[19,20],15:[20,21],16:[22,23],17:[23,24],18:[24,25],19:[25,26],20:[26,27],21:[27,28]};
 const SOLVE_BONUS=500;
 const TIME_BONUS=1260;
-const PERFECT_SCORE=8260;
+const REMAINING_TILE_BONUS_PER_TILE=50;
+const PERFECT_SCORE=8260; // Still valid: a true perfect route clears all 52 cards, so remaining-tile bonus is 0.
 
-let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, resetsUsed:0, completionApplied:false, solveBonus:0, timeBonus:0 };
+let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, resetsUsed:0, completionApplied:false, remainingTileBonus:0, remainingTiles:0, remainingPyramid:0, remainingInventory:0, remainingHold:0, solveBonus:0, timeBonus:0 };
 let history=[];
 let selected=null;
 let pointerSession=null;
@@ -262,14 +263,31 @@ function commitLog(type,summary,details={}){
 }
 function inventoryUsedCount(s=state){ let n=0; for(let i=29;i<=52;i++) if(s.tileData[i]===null)n++; return n; }
 function remainingPyramidCount(s=state){ let n=0; for(let i=1;i<=28;i++) if(s.tileData[i]!==null)n++; return n; }
+function remainingInventoryCount(s=state){ let n=0; for(let i=29;i<=52;i++) if(s.tileData[i]!==null)n++; return n; }
+function remainingTileBreakdown(s=state){
+  const remainingPyramid=remainingPyramidCount(s);
+  const remainingInventory=remainingInventoryCount(s);
+  const remainingHold=s.hold?1:0;
+  const remainingTiles=remainingPyramid+remainingInventory+remainingHold;
+  const remainingTileBonus=remainingTiles*REMAINING_TILE_BONUS_PER_TILE;
+  return {remainingPyramid,remainingInventory,remainingHold,remainingTiles,remainingTileBonus};
+}
 function streakScore(n){ if(n<=0)return 0; if(n===1)return 50; if(n===2)return 150; if(n===3)return 300; if(n===4)return 500; return 500+(n-4)*250; }
 function perfectRoutePossible(s=state){ if(s.gameOver)return s.score===PERFECT_SCORE&&inventoryUsedCount(s)===24; return s.score===streakScore(s.streak); }
 function applyCompletionBonuses(reason='Puzzle complete'){
   if(state.completionApplied) return;
-  state.completionApplied=true; state.solveBonus=SOLVE_BONUS; state.timeBonus=TIME_BONUS;
-  state.score+=SOLVE_BONUS+TIME_BONUS;
-  flashPoints(`+${(SOLVE_BONUS+TIME_BONUS).toLocaleString()} bonuses`);
-  commitLog('COMPLETE',`${reason}. +${SOLVE_BONUS} completion bonus +${TIME_BONUS} time bonus. Final score: ${state.score}.`,{solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,inventoryUsed:inventoryUsedCount(state),perfectScore:state.score===PERFECT_SCORE});
+  const remaining=remainingTileBreakdown(state);
+  state.completionApplied=true;
+  state.remainingPyramid=remaining.remainingPyramid;
+  state.remainingInventory=remaining.remainingInventory;
+  state.remainingHold=remaining.remainingHold;
+  state.remainingTiles=remaining.remainingTiles;
+  state.remainingTileBonus=remaining.remainingTileBonus;
+  state.solveBonus=SOLVE_BONUS; state.timeBonus=TIME_BONUS;
+  const completionAdd=remaining.remainingTileBonus+SOLVE_BONUS+TIME_BONUS;
+  state.score+=completionAdd;
+  flashPoints(`+${completionAdd.toLocaleString()} completion`);
+  commitLog('COMPLETE',`${reason}. +${remaining.remainingTileBonus} remaining-tile bonus (${remaining.remainingTiles} × ${REMAINING_TILE_BONUS_PER_TILE}) +${SOLVE_BONUS} completion bonus +${TIME_BONUS} time bonus. Final score: ${state.score}.`,{remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,remainingTileBonus:remaining.remainingTileBonus,remainingTiles:remaining.remainingTiles,remainingPyramid:remaining.remainingPyramid,remainingInventory:remaining.remainingInventory,remainingHold:remaining.remainingHold,holdCounted:remaining.remainingHold===1,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,finalScore:state.score,inventoryUsed:inventoryUsedCount(state),perfectScore:state.score===PERFECT_SCORE});
 }
 function clearKing(ref){
   if(!isPlayable(ref)||rankOf(ref)!=='K'){ setStatus('That King is not currently playable.'); return false; }
@@ -387,7 +405,7 @@ function localTimestampForFilename(){
 }
 function puzzleSignature(data){let str='';for(let i=1;i<=52;i++)str+=`${i}:${data?.[i]||'-'}|`;let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);}return `psai-${(h>>>0).toString(16).padStart(8,'0')}`;}
 function downloadLog(){
-  const payload={schemaVersion:2,version:VERSION,playerType:'SOLVER',logType:'SOLVER',solverMode:SOLVER_MODE,savedAt:new Date().toISOString(),puzzle:{puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},searchConfig:{mode:SOLVER_MODE,tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE,perfectProbeBeamWidth:PERFECT_PROBE_BEAM_WIDTH,perfectProbeStateLimit:PERFECT_PROBE_NODE_LIMIT,inventoryWave:SOLVER_MODE==='STANDARD',postResetEvaluation:SOLVER_MODE==='STANDARD',holdCorridor:SOLVER_MODE==='STANDARD'},strategyDiagnostics:{holdCorridor:holdCorridorStats,inventoryWaveFinal:SOLVER_MODE==='STANDARD'?inventoryWavePotential(state):null,postResetProfileFinal:SOLVER_MODE==='STANDARD'?nextDeploymentProfile(state):null},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex,snapshotPlayback:true,snapshotsCaptured:solverPlaybackSnapshots.filter(Boolean).length,snapshotHits:solverPlaybackSnapshotHits,snapshotRestores:solverPlaybackSnapshotRestores},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_solver_log_SOLVER_${SOLVER_MODE}_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
+  const payload={schemaVersion:2,version:VERSION,playerType:'SOLVER',logType:'SOLVER',solverMode:SOLVER_MODE,savedAt:new Date().toISOString(),puzzle:{puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},searchConfig:{mode:SOLVER_MODE,tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE,remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,perfectProbeBeamWidth:PERFECT_PROBE_BEAM_WIDTH,perfectProbeStateLimit:PERFECT_PROBE_NODE_LIMIT,inventoryWave:SOLVER_MODE==='STANDARD',postResetEvaluation:SOLVER_MODE==='STANDARD',holdCorridor:SOLVER_MODE==='STANDARD'},strategyDiagnostics:{holdCorridor:holdCorridorStats,inventoryWaveFinal:SOLVER_MODE==='STANDARD'?inventoryWavePotential(state):null,postResetProfileFinal:SOLVER_MODE==='STANDARD'?nextDeploymentProfile(state):null},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex,snapshotPlayback:true,snapshotsCaptured:solverPlaybackSnapshots.filter(Boolean).length,snapshotHits:solverPlaybackSnapshotHits,snapshotRestores:solverPlaybackSnapshotRestores},completionScoring:{remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,applied:!!state.completionApplied,remainingTileBonus:state.remainingTileBonus||0,remainingTiles:state.remainingTiles||0,remainingPyramid:state.remainingPyramid||0,remainingInventory:state.remainingInventory||0,remainingHold:state.remainingHold||0,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,finalScore:state.score},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_solver_log_SOLVER_${SOLVER_MODE}_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
 
 
@@ -439,7 +457,7 @@ function simRemove(s,ref){
   if(id>=29){ const i=s.inPlay.indexOf(id); if(i>=0)s.inPlay.splice(i,1); const q=s.stockQueue.indexOf(id); if(q>=0)s.stockQueue.splice(q,1); }
 }
 function simAward(s){ s.streak++; s.score+=Math.min(s.streak,5)*50; }
-function simComplete(s){ if(s.completionApplied)return; s.gameOver=true; s.completionApplied=true; s.solveBonus=SOLVE_BONUS; s.timeBonus=TIME_BONUS; s.score+=SOLVE_BONUS+TIME_BONUS; }
+function simComplete(s){ if(s.completionApplied)return; const remaining=remainingTileBreakdown(s); s.gameOver=true; s.completionApplied=true; s.remainingPyramid=remaining.remainingPyramid; s.remainingInventory=remaining.remainingInventory; s.remainingHold=remaining.remainingHold; s.remainingTiles=remaining.remainingTiles; s.remainingTileBonus=remaining.remainingTileBonus; s.solveBonus=SOLVE_BONUS; s.timeBonus=TIME_BONUS; s.score+=remaining.remainingTileBonus+SOLVE_BONUS+TIME_BONUS; }
 function simPlayableRefs(s){
   const refs=[];
   for(let i=1;i<=28;i++) if(s.tileData[i]&&simPyramidPlayable(s,i)) refs.push({zone:'pyramid',cardId:i});

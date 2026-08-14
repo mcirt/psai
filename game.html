@@ -56,7 +56,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.6.0</div>
+<div class="version">Pyramid Solitaire v1.6.3</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -80,7 +80,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.6.0';
+const VERSION='Pyramid Solitaire v1.6.3';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -107,9 +107,10 @@ function applyCardFace(el,rank){
 const BLOCKERS={1:[2,3],2:[4,5],3:[5,6],4:[7,8],5:[8,9],6:[9,10],7:[11,12],8:[12,13],9:[13,14],10:[14,15],11:[16,17],12:[17,18],13:[18,19],14:[19,20],15:[20,21],16:[22,23],17:[23,24],18:[24,25],19:[25,26],20:[26,27],21:[27,28]};
 const SOLVE_BONUS=500;
 const TIME_BONUS=1260;
-const PERFECT_SCORE=8260;
+const REMAINING_TILE_BONUS_PER_TILE=50;
+const PERFECT_SCORE=8260; // Still valid: a true perfect route clears all 52 cards, so remaining-tile bonus is 0.
 
-let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, completionApplied:false, solveBonus:0, timeBonus:0 };
+let state={ tileData:{}, stockQueue:[], inPlay:[], hold:null, score:0, streak:0, moveNumber:0, logs:[], gameOver:false, completionApplied:false, remainingTileBonus:0, remainingTiles:0, remainingPyramid:0, remainingInventory:0, remainingHold:0, solveBonus:0, timeBonus:0 };
 let history=[];
 let selected=null;
 let pointerSession=null;
@@ -174,12 +175,29 @@ function commitLog(type,summary,details={}){
   state.logs.push(entry); renderLog();
 }
 function inventoryUsedCount(s=state){ let n=0; for(let i=29;i<=52;i++) if(s.tileData[i]===null)n++; return n; }
+function remainingTileBreakdown(s=state){
+  let remainingPyramid=0, remainingInventory=0;
+  for(let i=1;i<=28;i++) if(s.tileData[i]!==null) remainingPyramid++;
+  for(let i=29;i<=52;i++) if(s.tileData[i]!==null) remainingInventory++;
+  const remainingHold=s.hold?1:0;
+  const remainingTiles=remainingPyramid+remainingInventory+remainingHold;
+  const remainingTileBonus=remainingTiles*REMAINING_TILE_BONUS_PER_TILE;
+  return {remainingPyramid,remainingInventory,remainingHold,remainingTiles,remainingTileBonus};
+}
 function applyCompletionBonuses(reason='Puzzle complete'){
   if(state.completionApplied) return;
-  state.completionApplied=true; state.solveBonus=SOLVE_BONUS; state.timeBonus=TIME_BONUS;
-  state.score+=SOLVE_BONUS+TIME_BONUS;
-  flashPoints(`+${(SOLVE_BONUS+TIME_BONUS).toLocaleString()} bonuses`);
-  commitLog('COMPLETE',`${reason}. +${SOLVE_BONUS} completion bonus +${TIME_BONUS} time bonus. Final score: ${state.score}.`,{solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,inventoryUsed:inventoryUsedCount(state),perfectScore:state.score===PERFECT_SCORE});
+  const remaining=remainingTileBreakdown(state);
+  state.completionApplied=true;
+  state.remainingPyramid=remaining.remainingPyramid;
+  state.remainingInventory=remaining.remainingInventory;
+  state.remainingHold=remaining.remainingHold;
+  state.remainingTiles=remaining.remainingTiles;
+  state.remainingTileBonus=remaining.remainingTileBonus;
+  state.solveBonus=SOLVE_BONUS; state.timeBonus=TIME_BONUS;
+  const completionAdd=remaining.remainingTileBonus+SOLVE_BONUS+TIME_BONUS;
+  state.score+=completionAdd;
+  flashPoints(`+${completionAdd.toLocaleString()} completion`);
+  commitLog('COMPLETE',`${reason}. +${remaining.remainingTileBonus} remaining-tile bonus (${remaining.remainingTiles} × ${REMAINING_TILE_BONUS_PER_TILE}) +${SOLVE_BONUS} completion bonus +${TIME_BONUS} time bonus. Final score: ${state.score}.`,{remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,remainingTileBonus:remaining.remainingTileBonus,remainingTiles:remaining.remainingTiles,remainingPyramid:remaining.remainingPyramid,remainingInventory:remaining.remainingInventory,remainingHold:remaining.remainingHold,holdCounted:remaining.remainingHold===1,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,finalScore:state.score,inventoryUsed:inventoryUsedCount(state),perfectScore:state.score===PERFECT_SCORE});
 }
 function centerOf(el){ const r=el.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; }
 async function animateKingBurst(ref){
@@ -334,7 +352,7 @@ function localTimestampForFilename(){
 function puzzleSignature(data){ let str=''; for(let i=1;i<=52;i++) str+=`${i}:${data?.[i]||'-'}|`; let h=2166136261; for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);} return `psai-${(h>>>0).toString(16).padStart(8,'0')}`; }
 function longestStreakFromLogs(){ return state.logs.reduce((m,e)=>Math.max(m,Number(e.streak)||0),0); }
 function downloadLog(){
-  const payload={schemaVersion:2,version:VERSION,playerType:'HUMAN',logType:'GAMEPLAY',savedAt:new Date().toISOString(),solverMode:null,puzzle:{sourceFilename:sourceFilename||null,puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},moves:state.logs,result:{solved:!!state.gameOver,finalScore:state.score,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,perfectScore:state.score===PERFECT_SCORE,inventoryUsed:inventoryUsedCount(state),longestStreak:longestStreakFromLogs()},finalState:state,historyDepth:history.length};
+  const payload={schemaVersion:2,version:VERSION,playerType:'HUMAN',logType:'GAMEPLAY',savedAt:new Date().toISOString(),solverMode:null,puzzle:{sourceFilename:sourceFilename||null,puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},moves:state.logs,result:{solved:!!state.gameOver,finalScore:state.score,remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,remainingTileBonus:state.remainingTileBonus||0,remainingTiles:state.remainingTiles||0,remainingPyramid:state.remainingPyramid||0,remainingInventory:state.remainingInventory||0,remainingHold:state.remainingHold||0,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,perfectScore:state.score===PERFECT_SCORE,inventoryUsed:inventoryUsedCount(state),longestStreak:longestStreakFromLogs()},finalState:state,historyDepth:history.length};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_game_log_HUMAN_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
 
