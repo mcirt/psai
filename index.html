@@ -183,7 +183,7 @@
 <body>
 
 <h1>Pyramid Solitaire Input</h1>
-<div class="version">Pyramid Solitaire v1.6.3</div>
+<div class="version">Pyramid Solitaire v1.7.0</div>
 
 <div id="pyramid">
     <div class="pyramid-row"><div class="tile" id="tile1"></div></div>
@@ -232,8 +232,9 @@
   <div style="display:flex;gap:8px;justify-content:center;">
     <button type="button" id="modeOriginal" class="action-button" style="background:#666;">ORIGINAL</button>
     <button type="button" id="modeStandard" class="action-button" style="background:#1677b8;">STANDARD</button>
+    <button type="button" id="modeDeep" class="action-button" style="background:#6f42c1;">DEEP</button>
   </div>
-  <div id="modeNote" style="font-size:12px;color:#555;margin-top:7px;">ORIGINAL = v1.5.5 solver unchanged. STANDARD adds Inventory Wave, Post-Reset evaluation, and Hold Corridor awareness.</div>
+  <div id="modeNote" style="font-size:12px;color:#555;margin-top:7px;">ORIGINAL = baseline. STANDARD adds Inventory Wave, Post-Reset evaluation, and Hold Corridor. DEEP adds Endgame/LITP guidance, phase-aware strategy, diversity beam, and progressive wider searches.</div>
 </div>
 <div class="button-grid">
     <button id="deleteButton" class="action-button">Delete Last Input</button>
@@ -246,7 +247,7 @@
 <input type="file" id="fileInput" hidden accept=".json,application/json">
 
 <script>
-    const VERSION = "Pyramid Solitaire v1.6.3";
+    const VERSION = "Pyramid Solitaire v1.7.0";
     const TOTAL_TILES = 52;
     const VALID_RANKS = new Set(["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]);
 
@@ -276,7 +277,7 @@
     let currentTile = 1;
     let tileData = {};
     let selectedTileId = null;
-    let solverMode = localStorage.getItem("psaiSolverMode") === "STANDARD" ? "STANDARD" : "ORIGINAL";
+    let solverMode = ["ORIGINAL","STANDARD","DEEP"].includes(localStorage.getItem("psaiSolverMode")) ? localStorage.getItem("psaiSolverMode") : "ORIGINAL";
 
     const statusElement = document.getElementById("status");
 
@@ -413,18 +414,18 @@
 
 
     function setSolverMode(mode) {
-        solverMode = mode === 'STANDARD' ? 'STANDARD' : 'ORIGINAL';
+        solverMode = ['ORIGINAL','STANDARD','DEEP'].includes(mode) ? mode : 'ORIGINAL';
         localStorage.setItem('psaiSolverMode',solverMode);
         const o=document.getElementById('modeOriginal'), st=document.getElementById('modeStandard');
         if(o){o.style.outline=solverMode==='ORIGINAL'?'3px solid #ffd400':'none';}
         if(st){st.style.outline=solverMode==='STANDARD'?'3px solid #ffd400':'none';}
+        const dp=document.getElementById('modeDeep'); if(dp){dp.style.outline=solverMode==='DEEP'?'3px solid #ffd400':'none';}
         const note=document.getElementById('modeNote');
-        if(note) note.textContent=solverMode==='ORIGINAL'
-          ? 'ORIGINAL = the v1.5.5 solver exactly, for clean A/B comparison.'
-          : 'STANDARD = original solver + Inventory Wave + Post-Reset evaluation + Hold Corridor awareness.';
+        if(note) note.textContent=solverMode==='ORIGINAL' ? 'ORIGINAL = baseline v1.5.5 solver behavior with corrected final scoring.' : solverMode==='STANDARD' ? 'STANDARD = ORIGINAL + Inventory Wave + Post-Reset evaluation + Hold Corridor awareness.' : 'DEEP = STANDARD + Endgame/LITP guidance + phase-aware strategy + diversity beam + progressive wider searches. Expect longer calculation time.';
     }
     document.getElementById('modeOriginal').addEventListener('click',()=>setSolverMode('ORIGINAL'));
     document.getElementById('modeStandard').addEventListener('click',()=>setSolverMode('STANDARD'));
+    document.getElementById('modeDeep').addEventListener('click',()=>setSolverMode('DEEP'));
     setSolverMode(solverMode);
 
     function localTimestampForFilename() {

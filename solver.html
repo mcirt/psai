@@ -127,7 +127,7 @@ h1 { text-align:center; margin:0 0 4px; }
     </select>
   </label>
 </div>
-<div class="solver-note">v1.6.1 keeps PSAI ORIGINAL and STANDARD search behavior unchanged, while upgrading solution playback with restart, exact backward replay snapshots, a combined Play/Pause transport button, Forward stepping, and an Ultra 0.30 sec playback option. Normal remains the default. Consecutive non-Draw/Reset actions are counted above Hold; Draw/Reset progress remains above Draw.</div>
+<div class="solver-note">v1.7.0 adds DEEP search while preserving ORIGINAL and STANDARD. DEEP establishes a Standard baseline, then runs wider progressive searches with Endgame/LITP guidance, stronger Hold Corridor, phase-aware strategy, and diversity-preserving beams. Final score display now explicitly shows remaining-tile, solve, and time bonuses.</div>
 <div class="search-stats">
   <div class="search-stat"><strong id="decisionStates">0</strong><span class="search-label">states this decision</span></div>
   <div class="search-stat"><strong id="totalStates">0</strong><span class="search-label">states this solver run</span></div>
@@ -165,8 +165,9 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.6.3';
-const SOLVER_MODE=localStorage.getItem('psaiSolverMode')==='STANDARD'?'STANDARD':'ORIGINAL';
+const VERSION='Pyramid Solitaire v1.7.0';
+const SOLVER_MODE=['ORIGINAL','STANDARD','DEEP'].includes(localStorage.getItem('psaiSolverMode'))?localStorage.getItem('psaiSolverMode'):'ORIGINAL';
+let activeSearchFlavor=SOLVER_MODE==='DEEP'?'DEEP':SOLVER_MODE;
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -355,7 +356,7 @@ function renderInventory(){
 function renderHold(){
   const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible'; if(rank) applyCardFace(el,rank); else el.style.background='transparent';
 }
-function renderScore(){ const suffix=state.completionApplied?` (includes +${state.solveBonus} solve +${state.timeBonus} time)`:''; document.getElementById('score').textContent=`Score: ${state.score}${suffix}`; }
+function renderScore(){ const suffix=state.completionApplied?` (includes +${state.solveBonus} solve +${state.timeBonus} time)`:''; document.getElementById('score').textContent=state.completionApplied?`Score: ${state.score} (includes +${state.remainingTileBonus||0} remaining +${state.solveBonus||0} solve +${state.timeBonus||0} time)`:`Score: ${state.score}`; }
 function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
 function renderSelection(){ clearHighlights(); if(!selected) return; const el=elementForRef(selected); if(el) el.classList.add('selected'); }
 function clearHighlights(){ document.querySelectorAll('.selected,.valid-target,.invalid-target').forEach(el=>el.classList.remove('selected','valid-target','invalid-target')); }
@@ -405,7 +406,7 @@ function localTimestampForFilename(){
 }
 function puzzleSignature(data){let str='';for(let i=1;i<=52;i++)str+=`${i}:${data?.[i]||'-'}|`;let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);}return `psai-${(h>>>0).toString(16).padStart(8,'0')}`;}
 function downloadLog(){
-  const payload={schemaVersion:2,version:VERSION,playerType:'SOLVER',logType:'SOLVER',solverMode:SOLVER_MODE,savedAt:new Date().toISOString(),puzzle:{puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},searchConfig:{mode:SOLVER_MODE,tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE,remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,perfectProbeBeamWidth:PERFECT_PROBE_BEAM_WIDTH,perfectProbeStateLimit:PERFECT_PROBE_NODE_LIMIT,inventoryWave:SOLVER_MODE==='STANDARD',postResetEvaluation:SOLVER_MODE==='STANDARD',holdCorridor:SOLVER_MODE==='STANDARD'},strategyDiagnostics:{holdCorridor:holdCorridorStats,inventoryWaveFinal:SOLVER_MODE==='STANDARD'?inventoryWavePotential(state):null,postResetProfileFinal:SOLVER_MODE==='STANDARD'?nextDeploymentProfile(state):null},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex,snapshotPlayback:true,snapshotsCaptured:solverPlaybackSnapshots.filter(Boolean).length,snapshotHits:solverPlaybackSnapshotHits,snapshotRestores:solverPlaybackSnapshotRestores},completionScoring:{remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,applied:!!state.completionApplied,remainingTileBonus:state.remainingTileBonus||0,remainingTiles:state.remainingTiles||0,remainingPyramid:state.remainingPyramid||0,remainingInventory:state.remainingInventory||0,remainingHold:state.remainingHold||0,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,finalScore:state.score},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_solver_log_SOLVER_${SOLVER_MODE}_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
+  const payload={schemaVersion:2,version:VERSION,playerType:'SOLVER',logType:'SOLVER',solverMode:SOLVER_MODE,savedAt:new Date().toISOString(),puzzle:{puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},searchConfig:{mode:SOLVER_MODE,tacticalDepth:SEARCH_DEPTH,stateLimit:SEARCH_NODE_LIMIT,tacticalBeamWidth:SEARCH_BEAM_WIDTH,planBeamWidth:PLAN_BEAM_WIDTH,planMaxDepth:PLAN_MAX_DEPTH,maxResets:MAX_SOLVER_RESETS,solveBonus:SOLVE_BONUS,timeBonus:TIME_BONUS,perfectScore:PERFECT_SCORE,remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,perfectProbeBeamWidth:PERFECT_PROBE_BEAM_WIDTH,perfectProbeStateLimit:PERFECT_PROBE_NODE_LIMIT,inventoryWave:SOLVER_MODE!=='ORIGINAL',postResetEvaluation:SOLVER_MODE!=='ORIGINAL',holdCorridor:SOLVER_MODE!=='ORIGINAL',endgamePlanner:SOLVER_MODE==='DEEP',litpReasoning:SOLVER_MODE==='DEEP',progressiveDeepSearch:SOLVER_MODE==='DEEP',diversityBeam:SOLVER_MODE==='DEEP',phaseAwareStrategy:SOLVER_MODE==='DEEP'},strategyDiagnostics:{holdCorridor:holdCorridorStats,inventoryWaveFinal:SOLVER_MODE!=='ORIGINAL'?inventoryWavePotential(state):null,postResetProfileFinal:SOLVER_MODE!=='ORIGINAL'?nextDeploymentProfile(state):null,endgame:solverEndgameAnalysis,deepSearch:solverDeepStats},solverSessionStats,planSearch:solverPlanResult,planPlayback:{plannedMoves:solverPlan.length,playedMoves:solverPlanIndex,snapshotPlayback:true,snapshotsCaptured:solverPlaybackSnapshots.filter(Boolean).length,snapshotHits:solverPlaybackSnapshotHits,snapshotRestores:solverPlaybackSnapshotRestores},completionScoring:{remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,applied:!!state.completionApplied,remainingTileBonus:state.remainingTileBonus||0,remainingTiles:state.remainingTiles||0,remainingPyramid:state.remainingPyramid||0,remainingInventory:state.remainingInventory||0,remainingHold:state.remainingHold||0,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,finalScore:state.score},finalState:state,historyDepth:history.length}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_solver_log_SOLVER_${SOLVER_MODE}_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
 
 
@@ -421,6 +422,12 @@ const MAX_SOLVER_RESETS=5;
 const STANDARD_HOLD_CORRIDOR_DEPTH=4;
 const STANDARD_HOLD_CORRIDOR_NODE_LIMIT=90;
 const STANDARD_HOLD_CORRIDOR_BEAM=8;
+const DEEP_HOLD_CORRIDOR_DEPTH=10;
+const DEEP_HOLD_CORRIDOR_NODE_LIMIT=520;
+const DEEP_HOLD_CORRIDOR_BEAM=18;
+const ENDGAME_CORE_TARGETS=[1,2,3,4,5,6];
+let solverEndgameAnalysis=null;
+let solverDeepStats={enabled:SOLVER_MODE==='DEEP',standardBaselineScore:null,selectedScore:null,improvement:0,passes:[]};
 let holdCorridorStats={calls:0,nodes:0,closuresFound:0,longestProjectedCorridor:0,bestProjectedValue:0};
 const holdCorridorMemo=new Map();
 let solverPreviewMs=1000;
@@ -540,18 +547,18 @@ function postResetLaunchBonus(s){const p=nextDeploymentProfile(s);return p.longe
 function scoringActionsPreservingHold(s){if(!s.hold)return[];return generateLegalActions(s).filter(a=>a.type==='KING'||(a.type==='MATCH'&&a.a?.zone!=='hold'&&a.b?.zone!=='hold'));}
 function holdClosureOptions(s){if(!s.hold)return[];const h={zone:'hold',cardId:'h'};return simPlayableRefs(s).filter(r=>r.zone!=='hold'&&simPair(s,h,r));}
 function holdCorridorKey(s,depth){return `${depth}|${structuralStateKey(s,'hold-corridor',true)}`;}
-function analyzeHoldCorridor(s){
- if(!s?.hold)return{value:0,closureFound:false,projectedScoringMoves:0,nodes:0,newlyExposed:0};const maxDepth=STANDARD_HOLD_CORRIDOR_DEPTH,nodeLimit=STANDARD_HOLD_CORRIDOR_NODE_LIMIT,beamWidth=STANDARD_HOLD_CORRIDOR_BEAM;const key=holdCorridorKey(s,maxDepth),memo=holdCorridorMemo.get(key);if(memo)return memo;holdCorridorStats.calls++;const startingExposed=exposedPyramidCount(s),start={state:simClone(s),scoringMoves:0,path:[],rank:0};let frontier=[start],nodes=0,best=start,bestValue=0,bestClosure=null;
+function analyzeHoldCorridor(s,opts={}){
+ if(!s?.hold)return{value:0,closureFound:false,projectedScoringMoves:0,nodes:0,newlyExposed:0};const deep=(opts.mode||activeSearchFlavor)==='DEEP';const maxDepth=deep?DEEP_HOLD_CORRIDOR_DEPTH:STANDARD_HOLD_CORRIDOR_DEPTH,nodeLimit=deep?DEEP_HOLD_CORRIDOR_NODE_LIMIT:STANDARD_HOLD_CORRIDOR_NODE_LIMIT,beamWidth=deep?DEEP_HOLD_CORRIDOR_BEAM:STANDARD_HOLD_CORRIDOR_BEAM;const key=holdCorridorKey(s,maxDepth),memo=holdCorridorMemo.get(key);if(memo)return memo;holdCorridorStats.calls++;const startingExposed=exposedPyramidCount(s),start={state:simClone(s),scoringMoves:0,path:[],rank:0};let frontier=[start],nodes=0,best=start,bestValue=0,bestClosure=null;
  const scoreNode=node=>{const st=node.state,exposureGain=Math.max(0,exposedPyramidCount(st)-startingExposed),immediate=scoringActionsPreservingHold(st).length;return node.scoringMoves*1400+exposureGain*850+immediate*300+holdInventoryAlignment(st)*5+st.streak*90;};
  for(let depth=0;depth<=maxDepth&&frontier.length&&nodes<nodeLimit;depth++){const next=[];for(const node of frontier){if(nodes>=nodeLimit)break;const closures=holdClosureOptions(node.state);if(closures.length){const exposureGain=Math.max(0,exposedPyramidCount(node.state)-startingExposed),closureValue=2600+node.scoringMoves*2100+node.scoringMoves*node.scoringMoves*250+exposureGain*1000+Math.max(0,node.state.streak-s.streak)*550;if(!bestClosure||closureValue>bestClosure.value)bestClosure={value:closureValue,scoringMoves:node.scoringMoves,exposureGain};}if(depth===maxDepth)continue;const ranked=[];for(const action of scoringActionsPreservingHold(node.state)){if(nodes>=nodeLimit)break;nodes++;const n=simApplyAction(node.state,action);if(!n)continue;const child={state:n,scoringMoves:node.scoringMoves+1,path:[...node.path,action]};child.rank=scoreNode(child);ranked.push(child);if(child.rank>bestValue){bestValue=child.rank;best=child;}}ranked.sort((a,b)=>b.rank-a.rank);next.push(...ranked.slice(0,beamWidth));}next.sort((a,b)=>b.rank-a.rank);frontier=next.slice(0,beamWidth);}
  holdCorridorStats.nodes+=nodes;const projectedScoringMoves=bestClosure?.scoringMoves??best.scoringMoves??0,closureFound=!!bestClosure,newlyExposed=bestClosure?.exposureGain??Math.max(0,exposedPyramidCount(best.state)-startingExposed);let value=closureFound?bestClosure.value:projectedScoringMoves*700+newlyExposed*500;if(!closureFound&&projectedScoringMoves>=3)value+=900;const result={value:Math.round(value),closureFound,projectedScoringMoves,newlyExposed,nodes};if(closureFound)holdCorridorStats.closuresFound++;holdCorridorStats.longestProjectedCorridor=Math.max(holdCorridorStats.longestProjectedCorridor,projectedScoringMoves);holdCorridorStats.bestProjectedValue=Math.max(holdCorridorStats.bestProjectedValue,result.value);if(holdCorridorMemo.size>3000)holdCorridorMemo.clear();holdCorridorMemo.set(key,result);return result;
 }
-function holdCorridorActionBonus(before,action,after){if(action.type!=='HOLD'||!after?.hold)return 0;const c=analyzeHoldCorridor(after);return Math.min(1800,c.projectedScoringMoves*220+c.newlyExposed*160+(c.closureFound?700:0));}
+function holdCorridorActionBonus(before,action,after){if(action.type!=='HOLD'||!after?.hold)return 0;const deep=activeSearchFlavor==='DEEP';const c=analyzeHoldCorridor(after,{mode:deep?'DEEP':'STANDARD'});return deep?Math.min(5200,c.projectedScoringMoves*420+c.newlyExposed*240+(c.closureFound?1600:0)+Math.round(c.value*.08)):Math.min(1800,c.projectedScoringMoves*220+c.newlyExposed*160+(c.closureFound?700:0));}
 function evaluateState(s){
   const invUsed=inventoryUsedCount(s), cleared=clearedPyramidCount(s), exposed=exposedPyramidCount(s), scoring=immediateScoringCount(s);
   if(s.gameOver){ const perfect=(s.score===PERFECT_SCORE && invUsed===24)?5000000:0; return 3000000 + perfect + s.score*1000 + invUsed*5000 - (s.resetsUsed||0)*500; }
   const original=s.score*12 + cleared*900 + invUsed*260 + exposed*55 + scoring*100 + s.streak*75 + holdQuality(s) - (s.resetsUsed||0)*140;
-  if(SOLVER_MODE==='ORIGINAL') return original;
+  if(activeSearchFlavor==='ORIGINAL') return original;
   const wave=inventoryWavePotential(s), alignment=holdInventoryAlignment(s), nextDeployment=nextDeploymentPotential(s);
   return original + wave*2.2 + alignment*2.8 + nextDeployment*1.35 + postResetLaunchBonus(s);
 }
@@ -574,7 +581,7 @@ function quickActionBias(s,action,next){
   b+=(clearedPyramidCount(next)-clearedPyramidCount(s))*100;
   b+=(exposedPyramidCount(next)-exposedPyramidCount(s))*70;
   b+=(inventoryUsedCount(next)-inventoryUsedCount(s))*90;
-  if(SOLVER_MODE==='STANDARD'){
+  if(activeSearchFlavor!=='ORIGINAL'){
     if(action.type==='HOLD'){
       b+=(holdInventoryAlignment(next)-holdInventoryAlignment(s))*1.5;
       b+=holdCorridorActionBonus(s,action,next);
@@ -792,10 +799,43 @@ function betterCompleted(a,b){
   if((a.state.resetsUsed||0)!==(b.state.resetsUsed||0)) return (a.state.resetsUsed||0)<(b.state.resetsUsed||0);
   return a.path.length<b.path.length;
 }
+function endgamePartnerOptions(s,target){
+  const rank=s.tileData[target]; if(!rank)return [];
+  if(rank==='K') return [{target,kind:'KING_SELF',partner:null,score:1000}];
+  const need=complementaryRank(rank), out=[];
+  for(let id=1;id<=52;id++) if(id!==target && s.tileData[id]===need){
+    let score=id>=29?760:700; if(target===1)score+=180; else if(target<=3)score+=90;
+    out.push({target,kind:id>=29?'MATCH_INVENTORY':'MATCH_PYRAMID',partner:id,score});
+  }
+  return out.sort((a,b)=>b.score-a.score);
+}
+function deriveLITPFromJobs(jobs){let litp=null;for(const j of jobs)if(j.kind==='MATCH_INVENTORY')litp=j.partner;return litp;}
+function buildLITPLanesFromId(L){if(!L)return{available:false,preLane:[],postLane:[]};const preLane=[];for(let i=L-1;i>=29;i--)preLane.push(i);const postLane=[];for(let i=52;i>=L;i--)postLane.push(i);return{available:true,litp:L,preLane,postLane};}
+function analyzeEndgamePSAI(s){
+  let beams=[{score:0,jobs:[],used:new Set()}];
+  for(const target of ENDGAME_CORE_TARGETS){const opts=endgamePartnerOptions(s,target).slice(0,8);const next=[];for(const b of beams){for(const o of opts){if(o.partner&&b.used.has(o.partner))continue;const used=new Set(b.used);if(o.partner)used.add(o.partner);next.push({score:b.score+o.score,jobs:b.jobs.concat([o]),used});}}next.sort((a,b)=>b.score-a.score);beams=next.slice(0,96);if(!beams.length)break;}
+  const candidates=beams.slice(0,12).map(b=>{const litp=deriveLITPFromJobs(b.jobs),lanes=buildLITPLanesFromId(litp);return{score:b.score,jobs:b.jobs,litp,lanes};});
+  return {coreTargets:ENDGAME_CORE_TARGETS,candidates,best:candidates[0]||null};
+}
+function endgameGuidanceScore(s){
+  if(activeSearchFlavor!=='DEEP'||!solverEndgameAnalysis?.best)return 0;
+  let v=0;const best=solverEndgameAnalysis.best;
+  for(const j of best.jobs){if(j.partner&&s.tileData[j.partner]!==null)v+=5000;if(s.tileData[j.target]===null)v+=2200;}
+  if(best.litp&&s.tileData[best.litp]!==null)v+=9000;
+  return v;
+}
+function deepPhaseStrategyScore(s){
+  if(activeSearchFlavor!=='DEEP')return 0;const stock=s.stockQueue.length,w=inventoryWavePotential(s),nd=nextDeploymentPotential(s),al=holdInventoryAlignment(s),im=immediateScoringCount(s);let score=0;
+  if(stock>0){score+=Math.min(s.streak,2)*9000;if(s.streak>3)score-=(s.streak-3)*11000;score+=w*80+nd*30+al*110+exposedPyramidCount(s)*1400+im*1000+clearedPyramidCount(s)*700;}
+  else{const long=Math.max(0,s.streak-2);score+=long*long*9000+s.streak*5000+im*2500+clearedPyramidCount(s)*1200-(s.resetsUsed||0)*14000;}
+  return score+endgameGuidanceScore(s);
+}
+function deepDiversityBucket(node){const s=node.state;return `${Math.min(3,s.resetsUsed||0)}|${Math.floor(s.stockQueue.length/6)}|${Math.min(5,Math.floor((s.streak||0)/4))}|${s.hold?1:0}|${Math.min(5,Math.floor(clearedPyramidCount(s)/5))}`;}
+function selectDeepFrontier(nodes,width){if(activeSearchFlavor!=='DEEP')return nodes.slice(0,width);const elite=Math.min(nodes.length,Math.max(60,Math.floor(width*.55))),selected=nodes.slice(0,elite),used=new Set(selected),buckets=new Map();for(const n of nodes.slice(elite)){const k=deepDiversityBucket(n);if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(n);}const lists=[...buckets.values()];for(let r=0;selected.length<width;r++){let added=false;for(const list of lists){if(selected.length>=width)break;if(r<list.length&&!used.has(list[r])){selected.push(list[r]);used.add(list[r]);added=true;}}if(!added)break;}return selected.slice(0,width);}
 function planRank(node){
   const s=node.state, cleared=clearedPyramidCount(s), inv=inventoryUsedCount(s);
   if(s.gameOver)return evaluateState(s);
-  return cleared*42000 + inv*12000 + s.score*30 + s.streak*160 + exposedPyramidCount(s)*500 + immediateScoringCount(s)*450 - (s.resetsUsed||0)*1000 - node.path.length*3;
+  return cleared*42000 + inv*12000 + s.score*30 + s.streak*160 + exposedPyramidCount(s)*500 + immediateScoringCount(s)*450 - (s.resetsUsed||0)*1000 - node.path.length*3 + (activeSearchFlavor!=='ORIGINAL'?(inventoryWavePotential(s)*65+holdInventoryAlignment(s)*95+nextDeploymentPotential(s)*42+postResetLaunchBonus(s)*28):0) + (activeSearchFlavor==='DEEP'?deepPhaseStrategyScore(s):0);
 }
 function updatePlanPanel(result,progressText=''){
   document.getElementById('planStates').textContent=(result?.statesExamined||0).toLocaleString();
@@ -893,7 +933,8 @@ async function searchPerfectScore(initial){
     : 'Known 8260 setup family checked; no perfect route found. Continuing with normal solver.';
   return {probe,path:null,state:null};
 }
-async function searchBestPlan(){
+async function searchBestPlan(opts={}){
+  const stateLimit=opts.stateLimit||SEARCH_NODE_LIMIT, beamWidth=opts.beamWidth||PLAN_BEAM_WIDTH, maxDepth=opts.maxDepth||PLAN_MAX_DEPTH; if(opts.flavor)activeSearchFlavor=opts.flavor;
   const initial=simClone(state);
   const result={statesExamined:0,duplicatesSkipped:0,deadBranches:0,solutionsFound:0,perfectCandidates:0,bestCompletedScore:null,bestMoveCount:null,bestResets:null,bestScoreImprovements:0,bestPartialScore:initial.score,limitReached:false,optimalityProven:false,stopReason:'',searchedDepth:0,perfectSetupSeeds:0};
   const perfectSeeds=buildPerfectSetupSeeds(initial); result.perfectSetupSeeds=perfectSeeds.length;
@@ -902,7 +943,7 @@ async function searchBestPlan(){
   let bestPartial={state:initial,path:[],rank:planRank({state:initial,path:[]})};
   const seen=new Map(); frontier.forEach(n=>{const k=planStateKey(n.state),p=seen.get(k); if(p===undefined||n.state.score>p)seen.set(k,n.state.score);});
   updatePlanPanel(result,'Starting full-plan search…');
-  for(let depth=0; depth<PLAN_MAX_DEPTH && frontier.length && result.statesExamined<SEARCH_NODE_LIMIT; depth++){
+  for(let depth=0; depth<maxDepth && frontier.length && result.statesExamined<stateLimit; depth++){
     result.searchedDepth=depth+1;
     const nextNodes=[];
     for(const node of frontier){
@@ -913,7 +954,7 @@ async function searchBestPlan(){
         return {action,next,q:evaluateState(next)+quickActionBias(node.state,action,next)};
       }).sort((a,b)=>b.q-a.q);
       for(const item of ordered){
-        if(result.statesExamined>=SEARCH_NODE_LIMIT){ result.limitReached=true; break; }
+        if(result.statesExamined>=stateLimit){ result.limitReached=true; break; }
         result.statesExamined++;
         const path=node.path.concat([item.action]);
         const next=item.next;
@@ -941,13 +982,13 @@ async function searchBestPlan(){
       if(result.limitReached) break;
     }
     nextNodes.sort((a,b)=>b.rank-a.rank);
-    frontier=nextNodes.slice(0,PLAN_BEAM_WIDTH);
+    frontier=activeSearchFlavor==='DEEP'?selectDeepFrontier(nextNodes,beamWidth):nextNodes.slice(0,beamWidth);
     updatePlanPanel(result,`Searching… depth ${depth+1}; frontier ${frontier.length.toLocaleString()}; ${(result.statesExamined).toLocaleString()} scenarios examined.`);
     await new Promise(r=>setTimeout(r,0));
   }
-  if(result.limitReached) result.stopReason=`Stopped at the ${SEARCH_NODE_LIMIT.toLocaleString()}-scenario limit. Best result found, not proof of optimality.`;
+  if(result.limitReached) result.stopReason=`Stopped at the ${stateLimit.toLocaleString()}-scenario limit. Best result found, not proof of optimality.`;
   else if(!frontier.length) result.stopReason='Search frontier exhausted within the beam search. Because beam pruning was used, optimality is not proven.';
-  else result.stopReason=`Stopped at plan depth ${PLAN_MAX_DEPTH}. Best result found, not proof of optimality.`;
+  else result.stopReason=`Stopped at plan depth ${maxDepth}. Best result found, not proof of optimality.`;
   const chosen=bestComplete||bestPartial;
   result.usedCompleteSolution=!!bestComplete;
   result.selectedPathLength=chosen.path.length;
@@ -1108,6 +1149,13 @@ async function solverLoop(){
   else if(solverPlanIndex>=solverPlan.length) setStatus('Saved plan finished.');
   updatePlaybackTransport();
 }
+function chooseBetterRun(a,b){if(!a)return b;if(!b)return a;const as=a.result?.selectedFinalScore??-1,bs=b.result?.selectedFinalScore??-1;if(bs!==as)return bs>as?b:a;const ar=a.result?.bestResets??999,br=b.result?.bestResets??999;if(br!==ar)return br<ar?b:a;return (b.path?.length||999)<(a.path?.length||999)?b:a;}
+async function runProgressiveDeepSearch(){
+  const passes=[{name:'STANDARD BASELINE',flavor:'STANDARD',stateLimit:100000,beamWidth:640,maxDepth:100},{name:'DEEP STRATEGY 1',flavor:'DEEP',stateLimit:250000,beamWidth:1200,maxDepth:120},{name:'DEEP STRATEGY 2',flavor:'DEEP',stateLimit:600000,beamWidth:2200,maxDepth:140}];
+  let best=null;solverDeepStats.passes=[];
+  for(const p of passes){document.getElementById('calculated-score-value').textContent=p.name;await new Promise(r=>setTimeout(r,0));const started=performance.now();const run=await searchBestPlan(p);solverDeepStats.passes.push({name:p.name,statesExamined:run.result.statesExamined,score:run.result.selectedFinalScore,elapsedMs:Math.round(performance.now()-started)});best=chooseBetterRun(best,run);}
+  solverDeepStats.standardBaselineScore=solverDeepStats.passes[0]?.score??null;solverDeepStats.selectedScore=best?.result?.selectedFinalScore??null;solverDeepStats.improvement=(solverDeepStats.selectedScore??0)-(solverDeepStats.standardBaselineScore??0);activeSearchFlavor='DEEP';return best;
+}
 async function prepareSolverPlan(){
   const startButton=document.getElementById('play-pause-button');
   const forwardButton=document.getElementById('forward-step-button');
@@ -1128,7 +1176,9 @@ async function prepareSolverPlan(){
     solverPlan=perfect.path; updatePlanPanel(solverPlanResult,perfect.probe.stopReason);
   }else{
     setStatus(`${perfect.probe.stopReason} Searching up to ${SEARCH_NODE_LIMIT.toLocaleString()} normal full-game scenarios…`);
-    const found=await searchBestPlan();
+    let found;
+  if(SOLVER_MODE==='DEEP'){solverEndgameAnalysis=analyzeEndgamePSAI(simClone(state)); found=await runProgressiveDeepSearch();}
+  else {activeSearchFlavor=SOLVER_MODE; found=await searchBestPlan({flavor:SOLVER_MODE});}
     found.result.perfectProbe=perfect.probe; solverPlanResult=found.result; solverPlan=found.path;
   }
   initializeSolverPlayback();
