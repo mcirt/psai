@@ -56,7 +56,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </head>
 <body>
 <h1>Pyramid Solitaire</h1>
-<div class="version">Pyramid Solitaire v1.6.3</div>
+<div class="version">Pyramid Solitaire v1.7.1 — Sliding Inventory Window</div>
 <div id="score">Score: 0</div>
 <div id="flash-points"></div>
 <div id="pyramid"></div>
@@ -80,7 +80,7 @@ h1 { text-align:center; margin:0 0 4px; }
 </div>
 <script>
 'use strict';
-const VERSION='Pyramid Solitaire v1.7.0';
+const VERSION='Pyramid Solitaire v1.7.1';
 const RANK_VALUE={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
 const PAIR_COLORS={
   A:'#ef4b3f',Q:'#ef4b3f',
@@ -147,14 +147,40 @@ function rankOf(ref){
   if(ref.zone==='inventory') return state.tileData[ref.cardId]||null;
   return state.tileData[ref.cardId]||null;
 }
-function isPyramidPlayable(id){ const blockers=BLOCKERS[id]||[]; return blockers.every(b=>state.tileData[b]===null); }
-function currentInventoryIds(){ return [...state.inPlay].sort((a,b)=>b-a).slice(0,3); }
-function currentZId(){ return currentInventoryIds()[0]??null; }
-function isPlayable(ref){
-  if(!ref||state.gameOver) return false;
-  if(ref.zone==='hold') return !!state.hold;
-  if(ref.zone==='inventory') return Number(ref.cardId)===currentZId();
-  return !!state.tileData[ref.cardId] && isPyramidPlayable(Number(ref.cardId));
+function isPyramidPlayableInState(s,id){ const blockers=BLOCKERS[id]||[]; return blockers.every(b=>s.tileData[b]===null); }
+function isPyramidPlayable(id){ return isPyramidPlayableInState(state,id); }
+function currentInventoryAscending(s=state){
+  return [...s.inPlay].filter(id=>s.tileData[id]!==null).sort((a,b)=>a-b);
+}
+function visibleInventorySlots(s=state){
+  const ids=currentInventoryAscending(s), n=ids.length;
+  if(n>=3){ const v=ids.slice(-3); return {x:v[0],y:v[1],z:v[2]}; }
+  if(n===2) return {x:ids[0],y:ids[1],z:null};
+  if(n===1) return {x:ids[0],y:null,z:null};
+  return {x:null,y:null,z:null};
+}
+function currentInventoryIds(s=state){
+  const slots=visibleInventorySlots(s);
+  return [slots.z,slots.y,slots.x].filter(id=>id!==null);
+}
+function currentZId(s=state){
+  const slots=visibleInventorySlots(s);
+  return slots.z??slots.y??slots.x??null;
+}
+function isPlayableInState(s,ref){
+  if(!ref||s.gameOver) return false;
+  if(ref.zone==='hold') return !!s.hold;
+  if(ref.zone==='inventory') return Number(ref.cardId)===currentZId(s);
+  return !!s.tileData[ref.cardId] && isPyramidPlayableInState(s,Number(ref.cardId));
+}
+function isPlayable(ref){ return isPlayableInState(state,ref); }
+function inventoryElementForId(id){
+  const n=Number(id);
+  for(const slotId of ['tilex','tiley','tilez']){
+    const el=document.getElementById(slotId);
+    if(el && Number(el.dataset.cardId)===n) return el;
+  }
+  return null;
 }
 function isPair(a,b){ const ra=rankOf(a), rb=rankOf(b); return !!ra&&!!rb&&RANK_VALUE[ra]+RANK_VALUE[rb]===13; }
 function pointsForNextStreak(){ return Math.min(state.streak+1,5)*50; }
@@ -232,6 +258,63 @@ function moveToHold(ref){
   if(Number(sourceId)===1){ state.gameOver=true; applyCompletionBonuses('Tile 1 moved to Hold. Game complete'); }
   finishAction(ref); return true;
 }
+
+function canImmediateExposureShortcut(source,target){
+  if(!source||!target||state.gameOver||state.hold) return false;
+  if(source.zone==='hold'||target.zone==='hold'||sameRef(source,target)) return false;
+  if(!isPlayable(source)) return false;
+  if(isPlayable(target)) return false; // normal match already handles this.
+  const sourceRank=rankOf(source), targetRank=rankOf(target);
+  if(!sourceRank||!targetRank||sourceRank==='K') return false;
+  if(RANK_VALUE[sourceRank]+RANK_VALUE[targetRank]!==13) return false;
+
+  const test=cloneState();
+  const sourceId=Number(source.cardId);
+  test.tileData[sourceId]=null;
+  if(source.zone==='inventory'){
+    const idx=test.inPlay.indexOf(sourceId); if(idx>=0)test.inPlay.splice(idx,1);
+    const q=test.stockQueue.indexOf(sourceId); if(q>=0)test.stockQueue.splice(q,1);
+  }
+  test.hold={rank:sourceRank,sourceId,sourceZone:source.zone};
+  return isPlayableInState(test,target);
+}
+function executeImmediateExposureShortcut(source,target){
+  if(!canImmediateExposureShortcut(source,target)){
+    setStatus('That shortcut is not legal.');
+    return false;
+  }
+
+  // One physical drag gesture and one Undo snapshot, while preserving the
+  // canonical HOLD -> MATCH_HOLD mechanics in the log.
+  saveSnapshot();
+  const sourceRank=rankOf(source), targetRank=rankOf(target);
+  const sourceLabel=describe(source), sourceId=Number(source.cardId), targetId=Number(target.cardId);
+
+  removeRef(source);
+  state.hold={rank:sourceRank,sourceId,sourceZone:source.zone};
+  commitLog('HOLD',`Shortcut: moved ${sourceLabel} to Hold, exposing ${describe(target)}.`,{
+    rank:sourceRank,tileId:sourceId,cardId:sourceId,fromZone:source.zone,
+    shortcutGesture:'IMMEDIATE_EXPOSURE_HOLD_MATCH',shortcutTargetId:targetId,shortcutTargetZone:target.zone
+  });
+
+  const holdRef={zone:'hold',cardId:'h'};
+  if(!isPlayable(target)||!isPair(holdRef,target)){
+    state=history.pop(); renderAll();
+    setStatus('Shortcut cancelled because the target did not become legally playable.');
+    return false;
+  }
+
+  const targetLabel=describe(target);
+  removeRef(holdRef); removeRef(target);
+  const pts=awardScoringAction();
+  commitLog('MATCH_HOLD',`Shortcut matched Hold (${sourceRank}) with ${targetLabel}; +${pts} points.`,{
+    holdTileId:sourceId,holdCardId:sourceId,otherTileId:targetId,otherCardId:targetId,
+    otherZone:target.zone,holdRank:sourceRank,otherRank:targetRank,pointsAwarded:pts,
+    h:sourceId,o:targetId,shortcutGesture:'IMMEDIATE_EXPOSURE_HOLD_MATCH',shortcutSourceZone:source.zone
+  });
+  finishAction(source,target);
+  return true;
+}
 function draw(){
   if(state.gameOver) return;
   if(state.stockQueue.length===0){ resetStock(); return; }
@@ -260,8 +343,10 @@ function sameRef(a,b){ return a&&b&&a.zone===b.zone&&String(a.cardId??'h')===Str
 function refFromElement(el){
   const card=el?.closest?.('.tile,.holdtile'); if(!card) return null;
   if(card.id==='tileh') return {zone:'hold',cardId:'h'};
-  if(card.id==='tilez') return {zone:'inventory',cardId:currentZId()};
-  if(card.id==='tilex'||card.id==='tiley') return {zone:'inventory',cardId:Number(card.dataset.cardId)};
+  if(card.id==='tilex'||card.id==='tiley'||card.id==='tilez'){
+    const id=Number(card.dataset.cardId);
+    return id?{zone:'inventory',cardId:id}:null;
+  }
   return {zone:'pyramid',cardId:Number(card.dataset.cardId)};
 }
 function renderAll(){
@@ -272,8 +357,15 @@ function renderAll(){
   document.getElementById('draw-button').textContent=state.stockQueue.length?'Draw':'Reset';
 }
 function renderInventory(){
-  const ids=currentInventoryIds(); const slots=[document.getElementById('tilez'),document.getElementById('tiley'),document.getElementById('tilex')];
-  slots.forEach((el,index)=>{ const id=ids[index]; const rank=id?state.tileData[id]:''; el.dataset.cardId=id??''; el.querySelector('.rank').textContent=rank; el.classList.toggle('hidden-card',!id); applyCardFace(el,rank); });
+  const visible=visibleInventorySlots(state);
+  const slotMap={tilex:visible.x,tiley:visible.y,tilez:visible.z};
+  for(const [slotId,id] of Object.entries(slotMap)){
+    const el=document.getElementById(slotId), rank=id?state.tileData[id]:'';
+    el.dataset.cardId=id??'';
+    el.querySelector('.rank').textContent=rank;
+    el.classList.toggle('hidden-card',!id);
+    applyCardFace(el,rank);
+  }
 }
 function renderHold(){
   const el=document.getElementById('tileh'); const rank=state.hold?.rank||''; el.querySelector('.rank').textContent=rank; el.classList.toggle('occupied',!!rank); el.querySelector('.holdtext').style.visibility=rank?'hidden':'visible'; if(rank) applyCardFace(el,rank); else el.style.background='transparent';
@@ -282,7 +374,7 @@ function renderScore(){ const suffix=state.completionApplied?` (includes +${stat
 function renderLog(){ const ol=document.getElementById('moveLog'); ol.innerHTML=''; state.logs.forEach(e=>{const li=document.createElement('li'); li.textContent=e.summary; ol.appendChild(li);}); ol.scrollTop=ol.scrollHeight; }
 function renderSelection(){ clearHighlights(); if(!selected) return; const el=elementForRef(selected); if(el) el.classList.add('selected'); }
 function clearHighlights(){ document.querySelectorAll('.selected,.valid-target,.invalid-target').forEach(el=>el.classList.remove('selected','valid-target','invalid-target')); }
-function elementForRef(ref){ if(ref.zone==='hold') return document.getElementById('tileh'); if(ref.zone==='inventory') return Number(ref.cardId)===currentZId()?document.getElementById('tilez'):null; return document.getElementById(`tile${ref.cardId}`); }
+function elementForRef(ref){ if(ref.zone==='hold') return document.getElementById('tileh'); if(ref.zone==='inventory') return inventoryElementForId(ref.cardId); return document.getElementById(`tile${ref.cardId}`); }
 function setStatus(text,complete=false){ const el=document.getElementById('status'); el.textContent=text; el.classList.toggle('game-over',complete); }
 function flashPoints(text,negative=false){ const el=document.getElementById('flash-points'); el.textContent=text; el.style.color=negative?'#b42318':'#238636'; clearTimeout(flashPoints.timer); flashPoints.timer=setTimeout(()=>el.textContent='',900); }
 
@@ -331,6 +423,7 @@ function bindPointerEvents(){
     const target=refAtPoint(e.clientX,e.clientY);
     if(!target||sameRef(p.ref,target)){ setStatus('Card returned to its original position.'); return; }
     if(target.zone==='hold'&&!state.hold){ moveToHold(p.ref); return; }
+    if(canImmediateExposureShortcut(p.ref,target)){ executeImmediateExposureShortcut(p.ref,target); return; }
     matchRefs(p.ref,target);
   });
   document.addEventListener('pointercancel',()=>{
@@ -343,7 +436,7 @@ function refAtPoint(x,y){ const el=document.elementFromPoint(x,y); return refFro
 function highlightDropTarget(x,y,source){
   clearHighlights(); const src=elementForRef(source); if(src) src.classList.add('selected'); const target=refAtPoint(x,y); if(!target||sameRef(source,target)) return;
   const el=elementForRef(target); if(!el) return;
-  const valid=(target.zone==='hold'&&!state.hold)|| (isPlayable(target)&&isPair(source,target)); el.classList.add(valid?'valid-target':'invalid-target');
+  const valid=(target.zone==='hold'&&!state.hold) || (isPlayable(target)&&isPair(source,target)) || canImmediateExposureShortcut(source,target); el.classList.add(valid?'valid-target':'invalid-target');
 }
 function localTimestampForFilename(){
   const d=new Date(), pad=n=>String(n).padStart(2,'0');
@@ -352,7 +445,7 @@ function localTimestampForFilename(){
 function puzzleSignature(data){ let str=''; for(let i=1;i<=52;i++) str+=`${i}:${data?.[i]||'-'}|`; let h=2166136261; for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);} return `psai-${(h>>>0).toString(16).padStart(8,'0')}`; }
 function longestStreakFromLogs(){ return state.logs.reduce((m,e)=>Math.max(m,Number(e.streak)||0),0); }
 function downloadLog(){
-  const payload={schemaVersion:2,version:VERSION,playerType:'HUMAN',logType:'GAMEPLAY',savedAt:new Date().toISOString(),solverMode:null,puzzle:{sourceFilename:sourceFilename||null,puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},moves:state.logs,result:{solved:!!state.gameOver,finalScore:state.score,remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,remainingTileBonus:state.remainingTileBonus||0,remainingTiles:state.remainingTiles||0,remainingPyramid:state.remainingPyramid||0,remainingInventory:state.remainingInventory||0,remainingHold:state.remainingHold||0,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,perfectScore:state.score===PERFECT_SCORE,inventoryUsed:inventoryUsedCount(state),longestStreak:longestStreakFromLogs()},finalState:state,historyDepth:history.length};
+  const payload={schemaVersion:2,version:VERSION,playerType:'HUMAN',logType:'GAMEPLAY',savedAt:new Date().toISOString(),solverMode:null,puzzle:{sourceFilename:sourceFilename||null,puzzleSignature:puzzleSignature(initialTileData),initialTileData:JSON.parse(JSON.stringify(initialTileData))},moves:state.logs,result:{solved:!!state.gameOver,finalScore:state.score,inventorySlidingWindow:true,immediateExposureHoldShortcut:true,remainingTileBonusPerTile:REMAINING_TILE_BONUS_PER_TILE,holdCountsAsRemainingTile:true,remainingTileBonus:state.remainingTileBonus||0,remainingTiles:state.remainingTiles||0,remainingPyramid:state.remainingPyramid||0,remainingInventory:state.remainingInventory||0,remainingHold:state.remainingHold||0,solveBonus:state.solveBonus||0,timeBonus:state.timeBonus||0,perfectScore:state.score===PERFECT_SCORE,inventoryUsed:inventoryUsedCount(state),longestStreak:longestStreakFromLogs()},finalState:state,historyDepth:history.length};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pyramid_solitaire_game_log_HUMAN_${localTimestampForFilename()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
 
